@@ -1,0 +1,678 @@
+schema = 1
+id = "photon"
+name = "Photon"
+version = "1.4.0"
+api = "0.1"
+description = "Photon Shaders v1.4 by SixthSurge, ported to Horizon's shader API: Photon's atmosphere, volumetric clouds, soft coloured shadows, water, fog, bloom and colour grading."
+authors = ["SixthSurge (Photon)", "fbikat (Horizon port)"]
+license = "LicenseRef-Photon-Shaders"
+shared = ["options.wgsl", "common.wgsl"]
+
+[sky]
+file = "sky.wgsl"
+name = "Photon sky"
+sun = false
+stars = false
+clouds = false
+
+[material]
+file = "material.wgsl"
+name = "Photon lighting"
+fog = false
+
+[vertex]
+file = "vertex.wgsl"
+
+[weather]
+file = "weather.wgsl"
+
+[shadow]
+resolution = 2048
+distance = 128.0
+option = "shadows"
+resolution_option = "shadow_resolution"
+distance_option = "shadow_distance"
+
+[reflection]
+option = "water_reflections"
+
+[[post]]
+file = "post/clouds.wgsl"
+name = "Clouds"
+output = "clouds_tex"
+scale = 0.5
+
+[[post]]
+file = "post/clouds_history.wgsl"
+name = "Clouds history"
+output = "clouds_hist"
+scale = 0.5
+
+[[post]]
+file = "post/composite.wgsl"
+name = "Clouds, fog and light shafts"
+
+[[post]]
+file = "post/bloom_down.wgsl"
+name = "Bloom downsample 1"
+output = "bloom_a"
+scale = 0.5
+
+[[post]]
+file = "post/bloom_down2.wgsl"
+name = "Bloom downsample 2"
+output = "bloom_b"
+scale = 0.25
+
+[[post]]
+file = "post/grade.wgsl"
+name = "Colour grading and tonemap"
+
+[[post]]
+file = "post/motion_blur.wgsl"
+name = "Motion blur"
+
+[[post]]
+file = "post/fxaa.wgsl"
+name = "FXAA"
+
+[[post]]
+file = "post/final.wgsl"
+name = "CAS"
+
+[budget]
+gpu_ms = 6.0
+
+[[materials]]
+id = 3
+sprites = ["block/tall_grass_bottom", "block/large_fern_bottom", "block/sunflower_bottom", "block/lilac_bottom", "block/rose_bush_bottom", "block/peony_bottom", "block/pitcher_plant_bottom", "block/tall_seagrass_bottom"]
+
+[[materials]]
+id = 4
+sprites = ["block/tall_grass_top", "block/large_fern_top", "block/sunflower_top", "block/lilac_top", "block/rose_bush_top", "block/peony_top", "block/pitcher_plant_top", "block/tall_seagrass_top"]
+
+[[materials]]
+id = 2
+sprites = ["block/short_grass", "block/fern", "block/dandelion", "block/poppy", "block/blue_orchid", "block/allium", "block/azure_bluet", "block/*_tulip", "block/oxeye_daisy", "block/cornflower", "block/lily_of_the_valley", "block/wither_rose", "block/torchflower", "block/*_sapling", "block/wheat_stage*", "block/carrots_stage*", "block/potatoes_stage*", "block/beetroots_stage*", "block/sweet_berry_bush_stage*", "block/dead_bush", "block/bush", "block/short_dry_grass", "block/tall_dry_grass", "block/firefly_bush", "block/open_eyeblossom", "block/closed_eyeblossom", "block/pink_petals", "block/wildflowers", "block/seagrass", "block/nether_sprouts", "block/crimson_roots", "block/warped_roots"]
+
+[[materials]]
+id = 5
+sprites = ["block/*_leaves", "block/azalea_leaves", "block/flowering_azalea_leaves"]
+
+[[materials]]
+id = 6
+sprites = ["block/vine", "block/glow_lichen", "block/sugar_cane", "block/lily_pad", "block/cave_vines*", "block/weeping_vines*", "block/twisting_vines*", "block/hanging_roots", "block/kelp*", "block/moss_carpet", "block/pale_hanging_moss*"]
+
+[[textures]]
+id = "scattering"
+file = "textures/scattering.png"
+filter = "linear"
+wrap = "clamp"
+
+[[textures]]
+id = "noisetex"
+file = "textures/noise.png"
+filter = "linear"
+wrap = "repeat"
+
+[[textures]]
+id = "worley"
+file = "textures/worley.png"
+filter = "linear"
+wrap = "clamp"
+
+[[textures]]
+id = "galaxy_tex"
+file = "textures/galaxy.png"
+filter = "linear"
+wrap = "repeat"
+
+[[pages]]
+id = "main"
+name = "Photon"
+columns = 1
+items = ["page:lighting", "page:shadows", "page:sky", "page:clouds", "page:fog", "page:water", "page:post"]
+
+[[pages]]
+id = "lighting"
+name = "Lighting"
+description = "Sun, sky, block light and foliage."
+items = ["sun_i", "moon_i", "skylight_i", "blocklight_i", "blocklight_r", "blocklight_g", "blocklight_b", "emission_strength", "shading_strength", "sss_intensity", "bounced_light_i", "cave_lighting_i", "specular_highlights", "waving_plants", "waving_leaves"]
+
+[[pages]]
+id = "shadows"
+name = "Shadows"
+description = "The sun and moon shadow map."
+items = ["shadows", "shadow_resolution", "shadow_distance", "shadow_vps", "colored_shadows", "shadow_penumbra_scale", "shadow_pcf_steps"]
+
+[[pages]]
+id = "sky"
+name = "Sky"
+description = "Atmosphere, sun and stars."
+items = ["sun_angular_radius", "stars_intensity", "stars_coverage", "galaxy", "galaxy_intensity", "atmosphere_saturation_boost"]
+
+[[pages]]
+id = "clouds"
+name = "Clouds"
+description = "Volumetric clouds."
+items = ["clouds_cumulus", "clouds_quality", "clouds_cumulus_coverage", "clouds_cumulus_density", "clouds_cumulus_altitude", "clouds_wind_speed", "clouds_cirrus", "clouds_cirrus_coverage"]
+
+[[pages]]
+id = "fog"
+name = "Fog"
+description = "Air fog and light shafts."
+items = ["vl", "vl_intensity", "air_fog_density", "border_fog"]
+
+[[pages]]
+id = "water"
+name = "Water"
+description = "Waves, colour and reflections."
+items = ["water_waves", "water_wave_strength", "water_absorption", "water_texture", "water_reflections"]
+
+[[pages]]
+id = "post"
+name = "Post-Processing"
+description = "Bloom, colour grading and anti-aliasing."
+items = ["bloom", "bloom_intensity", "manual_exposure", "tonemap", "grade_brightness", "grade_contrast", "grade_saturation", "grade_orange_sat_boost", "grade_teal_sat_boost", "grade_green_sat_boost", "purkinje_shift", "vignette", "vignette_intensity", "motion_blur", "fxaa", "cas_intensity"]
+
+[[options]]
+id = "sun_i"
+name = "Sunlight Intensity"
+type = "float"
+default = 1.0
+min = 0.0
+max = 2.0
+step = 0.05
+
+[[options]]
+id = "moon_i"
+name = "Moonlight Intensity"
+type = "float"
+default = 1.0
+min = 0.0
+max = 2.0
+step = 0.05
+
+[[options]]
+id = "skylight_i"
+name = "Skylight Intensity"
+type = "float"
+default = 1.0
+min = 0.0
+max = 2.0
+step = 0.05
+
+[[options]]
+id = "blocklight_i"
+name = "Blocklight Intensity"
+type = "float"
+default = 1.0
+min = 0.0
+max = 2.0
+step = 0.05
+
+[[options]]
+id = "blocklight_r"
+name = "Blocklight Red"
+type = "float"
+default = 1.0
+min = 0.0
+max = 1.0
+step = 0.01
+
+[[options]]
+id = "blocklight_g"
+name = "Blocklight Green"
+type = "float"
+default = 0.75
+min = 0.0
+max = 1.0
+step = 0.01
+
+[[options]]
+id = "blocklight_b"
+name = "Blocklight Blue"
+type = "float"
+default = 0.63
+min = 0.0
+max = 1.0
+step = 0.01
+
+[[options]]
+id = "emission_strength"
+name = "Emission Strength"
+type = "float"
+default = 1.0
+min = 0.0
+max = 2.0
+step = 0.05
+description = "How brightly light sources glow."
+
+[[options]]
+id = "shading_strength"
+name = "Shading Strength"
+type = "float"
+default = 1.0
+min = 0.1
+max = 2.0
+step = 0.05
+description = "How much the sun's angle darkens faces."
+
+[[options]]
+id = "sss_intensity"
+name = "Subsurface Scattering"
+type = "float"
+default = 1.0
+min = 0.0
+max = 2.0
+step = 0.05
+description = "Light passing through leaves and plants."
+
+[[options]]
+id = "bounced_light_i"
+name = "Bounced Light"
+type = "float"
+default = 1.0
+min = 0.0
+max = 2.0
+step = 0.05
+
+[[options]]
+id = "cave_lighting_i"
+name = "Cave Lighting"
+type = "float"
+default = 1.0
+min = 0.0
+max = 2.0
+step = 0.05
+description = "Minimum light underground."
+
+[[options]]
+id = "specular_highlights"
+name = "Specular Highlights"
+type = "bool"
+default = true
+description = "Sun highlights on smooth surfaces (LabPBR)."
+
+[[options]]
+id = "waving_plants"
+name = "Waving Plants"
+type = "bool"
+default = true
+
+[[options]]
+id = "waving_leaves"
+name = "Waving Leaves"
+type = "bool"
+default = true
+
+[[options]]
+id = "shadows"
+name = "Shadows"
+type = "bool"
+default = true
+description = "Off: no shadow map is drawn."
+
+[[options]]
+id = "shadow_resolution"
+name = "Shadow Resolution"
+type = "choice"
+values = ["1024", "2048", "4096", "8192"]
+default = "2048"
+
+[[options]]
+id = "shadow_distance"
+name = "Shadow Distance"
+type = "choice"
+values = ["64", "96", "128", "192", "256", "384", "512"]
+default = "128"
+description = "In blocks."
+
+[[options]]
+id = "shadow_vps"
+name = "Variable Penumbra Shadows"
+type = "bool"
+default = true
+description = "Soft shadows that sharpen near their caster."
+
+[[options]]
+id = "colored_shadows"
+name = "Colored Shadows"
+type = "bool"
+default = true
+description = "Light tinted by stained glass and water."
+
+[[options]]
+id = "shadow_penumbra_scale"
+name = "Penumbra Scale"
+type = "float"
+default = 1.0
+min = 0.0
+max = 2.0
+step = 0.1
+
+[[options]]
+id = "shadow_pcf_steps"
+name = "Shadow Filter Samples"
+type = "int"
+default = 12
+min = 4
+max = 32
+
+[[options]]
+id = "sun_angular_radius"
+name = "Sun Size"
+type = "float"
+default = 2.0
+min = 0.5
+max = 4.0
+step = 0.1
+description = "Angular radius in degrees."
+
+[[options]]
+id = "stars_intensity"
+name = "Stars Intensity"
+type = "float"
+default = 1.0
+min = 0.0
+max = 2.0
+step = 0.05
+
+[[options]]
+id = "stars_coverage"
+name = "Stars Coverage"
+type = "float"
+default = 0.5
+min = 0.0
+max = 1.0
+step = 0.05
+
+[[options]]
+id = "galaxy"
+name = "Galaxy"
+type = "bool"
+default = false
+
+[[options]]
+id = "galaxy_intensity"
+name = "Galaxy Intensity"
+type = "float"
+default = 1.0
+min = 0.0
+max = 2.0
+step = 0.05
+
+[[options]]
+id = "atmosphere_saturation_boost"
+name = "Atmosphere Saturation Boost"
+type = "float"
+default = 1.0
+min = -1.0
+max = 1.0
+step = 0.05
+
+[[options]]
+id = "clouds_cumulus"
+name = "Cumulus Clouds"
+type = "bool"
+default = true
+
+[[options]]
+id = "clouds_quality"
+name = "Cloud Quality"
+type = "choice"
+values = ["Low", "Medium", "High"]
+default = "Medium"
+description = "Raymarching steps."
+
+[[options]]
+id = "clouds_cumulus_coverage"
+name = "Cumulus Coverage"
+type = "float"
+default = 1.0
+min = 0.0
+max = 2.0
+step = 0.05
+
+[[options]]
+id = "clouds_cumulus_density"
+name = "Cumulus Density"
+type = "float"
+default = 1.0
+min = 0.1
+max = 2.0
+step = 0.05
+
+[[options]]
+id = "clouds_cumulus_altitude"
+name = "Cumulus Altitude"
+type = "float"
+default = 1200.0
+min = 400.0
+max = 3000.0
+step = 100.0
+description = "In metres of the sky model."
+
+[[options]]
+id = "clouds_wind_speed"
+name = "Wind Speed"
+type = "float"
+default = 25.0
+min = 0.0
+max = 60.0
+step = 1.0
+
+[[options]]
+id = "clouds_cirrus"
+name = "Cirrus Clouds"
+type = "bool"
+default = true
+
+[[options]]
+id = "clouds_cirrus_coverage"
+name = "Cirrus Coverage"
+type = "float"
+default = 1.0
+min = 0.0
+max = 2.0
+step = 0.05
+
+[[options]]
+id = "vl"
+name = "Volumetric Light"
+type = "bool"
+default = true
+description = "Light shafts through the shadow map."
+
+[[options]]
+id = "vl_intensity"
+name = "Volumetric Light Intensity"
+type = "float"
+default = 1.0
+min = 0.0
+max = 2.0
+step = 0.05
+
+[[options]]
+id = "air_fog_density"
+name = "Air Fog Density"
+type = "float"
+default = 1.0
+min = 0.0
+max = 4.0
+step = 0.1
+
+[[options]]
+id = "border_fog"
+name = "Border Fog"
+type = "bool"
+default = true
+description = "Fades terrain into the sky at the render distance."
+
+[[options]]
+id = "water_waves"
+name = "Water Waves"
+type = "bool"
+default = true
+
+[[options]]
+id = "water_wave_strength"
+name = "Wave Strength"
+type = "float"
+default = 1.0
+min = 0.0
+max = 2.0
+step = 0.05
+
+[[options]]
+id = "water_absorption"
+name = "Water Absorption"
+type = "float"
+default = 1.0
+min = 0.0
+max = 3.0
+step = 0.05
+description = "How quickly light fades in water."
+
+[[options]]
+id = "water_texture"
+name = "Water Texture"
+type = "choice"
+values = ["Off", "Highlight", "Vanilla"]
+default = "Highlight"
+
+[[options]]
+id = "water_reflections"
+name = "Water Reflections"
+type = "bool"
+default = true
+description = "Horizon's mirror of the world in water."
+
+[[options]]
+id = "bloom"
+name = "Bloom"
+type = "bool"
+default = true
+
+[[options]]
+id = "bloom_intensity"
+name = "Bloom Intensity"
+type = "float"
+default = 1.0
+min = 0.0
+max = 2.0
+step = 0.05
+
+[[options]]
+id = "manual_exposure"
+name = "Exposure (EV)"
+type = "float"
+default = 0.0
+min = -3.0
+max = 3.0
+step = 0.1
+description = "Photon's manual exposure; higher is darker."
+
+[[options]]
+id = "tonemap"
+name = "Tonemap"
+type = "choice"
+values = ["Lottes", "ACES Fit", "Hejl 2015", "Uncharted 2", "Tech", "Reinhard-Jodie"]
+default = "Lottes"
+
+[[options]]
+id = "grade_brightness"
+name = "Brightness"
+type = "float"
+default = 1.0
+min = 0.0
+max = 2.0
+step = 0.05
+
+[[options]]
+id = "grade_contrast"
+name = "Contrast"
+type = "float"
+default = 1.0
+min = 0.0
+max = 2.0
+step = 0.05
+
+[[options]]
+id = "grade_saturation"
+name = "Saturation"
+type = "float"
+default = 1.0
+min = 0.0
+max = 2.0
+step = 0.05
+
+[[options]]
+id = "grade_orange_sat_boost"
+name = "Orange Saturation Boost"
+type = "float"
+default = 0.0
+min = -0.5
+max = 0.5
+step = 0.01
+
+[[options]]
+id = "grade_teal_sat_boost"
+name = "Teal Saturation Boost"
+type = "float"
+default = 0.1
+min = -0.5
+max = 0.5
+step = 0.01
+
+[[options]]
+id = "grade_green_sat_boost"
+name = "Green Saturation Boost"
+type = "float"
+default = 0.0
+min = -0.5
+max = 0.5
+step = 0.01
+
+[[options]]
+id = "purkinje_shift"
+name = "Purkinje Shift"
+type = "bool"
+default = true
+description = "Blue-shifted night vision."
+
+[[options]]
+id = "vignette"
+name = "Vignette"
+type = "bool"
+default = true
+
+[[options]]
+id = "vignette_intensity"
+name = "Vignette Intensity"
+type = "float"
+default = 1.0
+min = 0.0
+max = 2.0
+step = 0.05
+
+[[options]]
+id = "motion_blur"
+name = "Motion Blur"
+type = "bool"
+default = false
+
+[[options]]
+id = "fxaa"
+name = "FXAA"
+type = "bool"
+default = true
+
+[[options]]
+id = "cas_intensity"
+name = "Sharpening (CAS)"
+type = "float"
+default = 0.5
+min = 0.0
+max = 1.0
+step = 0.05

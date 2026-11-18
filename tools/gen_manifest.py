@@ -1,4 +1,5 @@
 # writes pack/horizon-shaders.toml from one table, so pages and options stay in step
+import os
 import sys
 
 F, I, B, C = 'float', 'int', 'bool', 'choice'
@@ -64,7 +65,7 @@ pages = [
         ('bloom', 'Bloom', B, True, ''),
         ('bloom_intensity', 'Bloom Intensity', F, 1.0, 0.0, 2.0, 0.05, ''),
         ('manual_exposure', 'Exposure (EV)', F, 0.0, -3.0, 3.0, 0.1, "Photon's manual exposure; higher is darker."),
-        ('tonemap', 'Tonemap', C, ['Lottes', 'ACES Fit', 'Hejl 2015', 'Uncharted 2', 'Tech', 'Reinhard-Jodie'], 'Lottes', ''),
+        ('tonemap_operator', 'Tonemap', C, ['Lottes', 'ACES Fit', 'Hejl 2015', 'Uncharted 2', 'Tech', 'Reinhard-Jodie'], 'Lottes', ''),
         ('grade_brightness', 'Brightness', F, 1.0, 0.0, 2.0, 0.05, ''),
         ('grade_contrast', 'Contrast', F, 1.0, 0.0, 2.0, 0.05, ''),
         ('grade_saturation', 'Saturation', F, 1.0, 0.0, 2.0, 0.05, ''),
@@ -85,7 +86,11 @@ def q(s):
     return '"' + s.replace('\\', '\\\\').replace('"', '\\"') + '"'
 
 
-out = [open(sys.argv[1], encoding='utf-8').read().rstrip() + '\n']
+_here = os.path.dirname(os.path.abspath(__file__))
+head_path = sys.argv[1] if len(sys.argv) > 1 else os.path.join(_here, 'manifest_head.toml')
+out_path = sys.argv[2] if len(sys.argv) > 2 else os.path.normpath(os.path.join(_here, '..', 'pack', 'horizon-shaders.toml'))
+
+out = [open(head_path, encoding='utf-8').read().rstrip() + '\n']
 w = out.append
 w('\n[[pages]]\nid = "main"\nname = "Photon"\ncolumns = 1\nitems = ['
   + ', '.join(q('page:' + p[0]) for p in pages) + ']\n')
@@ -110,5 +115,5 @@ for _, _, _, opts in pages:
             w('values = [' + ', '.join(q(v) for v in vals) + f']\ndefault = {q(d)}\n')
         if desc:
             w(f'description = {q(desc)}\n')
-open(sys.argv[2], 'w', encoding='utf-8', newline='\n').write(''.join(out))
+open(out_path, 'w', encoding='utf-8', newline='\n').write(''.join(out))
 print(sum(len(p[3]) for p in pages), 'options')

@@ -401,12 +401,16 @@ fn post(input: PostInput) -> vec4<f32> {
         ci = draw_cirrus(viewer, ray_dir, clear_sky, dither);
     }
     // the layer nearer the viewer lies in front
-    var current: vec4<f32>;
+    var scattered: vec3<f32>;
+    var transmittance: f32;
     if viewer.y > cirrus_radius() {
-        current = vec4<f32>(ci.scattering + ci.transmittance * cu.scattering, cu.transmittance * ci.transmittance);
+        scattered = ci.scattering + ci.transmittance * cu.scattering;
+        transmittance = cu.transmittance * ci.transmittance;
     } else {
-        current = vec4<f32>(cu.scattering + cu.transmittance * ci.scattering, cu.transmittance * ci.transmittance);
+        scattered = cu.scattering + cu.transmittance * ci.scattering;
+        transmittance = cu.transmittance * ci.transmittance;
     }
+    let current = vec4<f32>(rec2020_to_linear(scattered), transmittance);
 
     // temporal accumulation in place of photon's taa: clouds are far, so reproject by direction
     let prev_clip = frame.previous_view_projection * vec4<f32>(ray_dir * 1e4, 1.0);

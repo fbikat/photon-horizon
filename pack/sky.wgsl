@@ -50,8 +50,8 @@ fn celestial(ray_dir: vec3<f32>) -> vec3<f32> {
 fn sky(input: SkyInput) -> vec4<f32> {
     let ray_dir = normalize(input.direction);
     if !in_overworld() {
-        // the nether and end keep their vanilla look, encoded like the rest
-        return vec4<f32>(encode_hdr(from_srgb(input.color.rgb), 0.5), input.color.a);
+        // the nether and end keep their vanilla look in linear BT.709
+        return input.color;
     }
     let atmosphere = atmosphere_scattering_both(ray_dir, sun_color(), moon_color());
     var sky_col = vec3<f32>(0.0);
@@ -65,7 +65,7 @@ fn sky(input: SkyInput) -> vec4<f32> {
         var g = textureSampleLevel(galaxy_tex, galaxy_tex_sampler, vec2<f32>(lon / tau + 0.5, lat / pi), 0.0).rgb;
         g = srgb_eotf_inv(g) * rec709_to_rec2020;
         g *= intensity * vec3<f32>(0.75, 0.66, 1.0) * galaxy_intensity;
-        galaxy_luminance = dot(g, luminance_weights_rec709);
+        galaxy_luminance = dot(g, luminance_weights);
         sky_col += max(mix(vec3<f32>(galaxy_luminance), g, 2.0), vec3<f32>(0.0));
     }
     sky_col += draw_stars(cel, galaxy_luminance);
@@ -78,6 +78,5 @@ fn sky(input: SkyInput) -> vec4<f32> {
     let underground = biome_cave() * smoothstep(-0.1, 0.1, 0.4 - ray_dir.y);
     sky_col = mix(sky_col, vec3<f32>(0.0), underground);
 
-    let dither = interleaved_gradient_noise(input.direction.xy * 4096.0 + f32(frame.frame_index % 64u) * 5.588238);
-    return vec4<f32>(encode_hdr(sky_col, dither), 1.0);
+    return vec4<f32>(rec2020_to_linear(sky_col), 1.0);
 }

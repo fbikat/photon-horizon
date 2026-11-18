@@ -1,8 +1,8 @@
 schema = 1
 id = "photon"
 name = "Photon"
-version = "1.4.0"
-api = "0.1"
+version = "2.0.0"
+api = "0.2"
 description = "Photon Shaders v1.4 by SixthSurge, ported to Horizon's shader API: Photon's atmosphere, volumetric clouds, soft coloured shadows, water, fog, bloom and colour grading."
 authors = ["SixthSurge (Photon)", "fbikat (Horizon port)"]
 license = "LicenseRef-Photon-Shaders"
@@ -66,7 +66,7 @@ scale = 0.25
 
 [[post]]
 file = "post/grade.wgsl"
-name = "Colour grading and tonemap"
+name = "Colour grading"
 
 [[post]]
 file = "post/motion_blur.wgsl"
@@ -79,6 +79,10 @@ name = "FXAA"
 [[post]]
 file = "post/final.wgsl"
 name = "CAS"
+
+[tonemap]
+file = "tonemap.wgsl"
+name = "Photon tonemap"
 
 [budget]
 gpu_ms = 6.0
@@ -173,7 +177,7 @@ items = ["water_waves", "water_wave_strength", "water_absorption", "water_textur
 id = "post"
 name = "Post-Processing"
 description = "Bloom, colour grading and anti-aliasing."
-items = ["bloom", "bloom_intensity", "manual_exposure", "tonemap", "grade_brightness", "grade_contrast", "grade_saturation", "grade_orange_sat_boost", "grade_teal_sat_boost", "grade_green_sat_boost", "purkinje_shift", "vignette", "vignette_intensity", "motion_blur", "fxaa", "cas_intensity"]
+items = ["bloom", "bloom_intensity", "manual_exposure", "tonemap_operator", "grade_brightness", "grade_contrast", "grade_saturation", "grade_orange_sat_boost", "grade_teal_sat_boost", "grade_green_sat_boost", "purkinje_shift", "vignette", "vignette_intensity", "motion_blur", "fxaa", "cas_intensity"]
 
 [[options]]
 id = "sun_i"
@@ -574,7 +578,7 @@ step = 0.1
 description = "Photon's manual exposure; higher is darker."
 
 [[options]]
-id = "tonemap"
+id = "tonemap_operator"
 name = "Tonemap"
 type = "choice"
 values = ["Lottes", "ACES Fit", "Hejl 2015", "Uncharted 2", "Tech", "Reinhard-Jodie"]

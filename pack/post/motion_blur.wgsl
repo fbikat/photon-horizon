@@ -22,5 +22,5 @@ fn post(input: PostInput) -> vec4<f32> {
         let t = (f32(i) + dither) / f32(samples) - 0.5;
         sum += textureSampleLevel(previous, linear_sampler, input.uv - velocity * t, 0.0).rgb;
     }
-    return vec4<f32>(sum / f32(samples), input.color.a);
+    return vec4<f32>(sum / f32(samples), 1.0);
 }

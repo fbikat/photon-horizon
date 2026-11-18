@@ -1,8 +1,8 @@
 schema = 1
 id = "photon"
 name = "Photon"
-version = "1.4.0"
-api = "0.1"
+version = "2.0.0"
+api = "0.2"
 description = "Photon Shaders v1.4 by SixthSurge, ported to Horizon's shader API: Photon's atmosphere, volumetric clouds, soft coloured shadows, water, fog, bloom and colour grading."
 authors = ["SixthSurge (Photon)", "fbikat (Horizon port)"]
 license = "LicenseRef-Photon-Shaders"
@@ -66,7 +66,7 @@ scale = 0.25
 
 [[post]]
 file = "post/grade.wgsl"
-name = "Colour grading and tonemap"
+name = "Colour grading"
 
 [[post]]
 file = "post/motion_blur.wgsl"
@@ -79,6 +79,10 @@ name = "FXAA"
 [[post]]
 file = "post/final.wgsl"
 name = "CAS"
+
+[tonemap]
+file = "tonemap.wgsl"
+name = "Photon tonemap"
 
 [budget]
 gpu_ms = 6.0

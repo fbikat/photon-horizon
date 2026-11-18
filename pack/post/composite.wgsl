@@ -25,8 +25,7 @@ fn vl_visibility(ray_dir: vec3<f32>, dist: f32, dither: f32) -> f32 {
 
 fn post(input: PostInput) -> vec4<f32> {
     let texel = vec2<i32>(input.pixel);
-    let stored = textureLoad(scene_color, texel, 0);
-    var color = decode_hdr(stored.rgb);
+    var color = linear_to_rec2020(textureLoad(scene_color, texel, 0).rgb);
     let depth = input.depth;
     let is_sky = depth <= 0.0;
     let pos = view_position(input.uv, max(depth, 1e-7));
@@ -36,18 +35,18 @@ fn post(input: PostInput) -> vec4<f32> {
 
     if !in_overworld() {
         // nether and end: vanilla's fog in linear light
-        let fog_col = from_srgb(frame.fog_color);
+        let fog_col = linear_to_rec2020(frame.fog_color);
         let f = smoothstep(frame.fog_start, frame.fog_end, dist);
         if !is_sky {
             color = mix(color, fog_col * 0.5, f);
         }
-        return vec4<f32>(color, stored.a);
+        return vec4<f32>(rec2020_to_linear(color), 1.0);
     }
 
     // clouds
     if clouds_cumulus || clouds_cirrus {
         let c = textureSampleLevel(clouds_tex, linear_sampler, input.uv, 0.0);
-        color = color * c.a + c.rgb;
+        color = color * c.a + linear_to_rec2020(c.rgb);
     }
 
     let underwater = frame.eye_in == 1u;
@@ -100,5 +99,5 @@ fn post(input: PostInput) -> vec4<f32> {
     if dark > 0.0 {
         color *= mix(1.0, exp(-0.2 * dist), dark);
     }
-    return vec4<f32>(max(color, vec3<f32>(0.0)), stored.a);
+    return vec4<f32>(rec2020_to_linear(color), 1.0);
 }

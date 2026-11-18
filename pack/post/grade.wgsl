@@ -1,30 +1,4 @@
-// photon's c19_color_grading: bloom, exposure, vignette, grading, tone mapping, display encoding
-
-fn rgb_to_hsl(c: vec3<f32>) -> vec3<f32> {
-    let k = vec4<f32>(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
-    let p = mix(vec4<f32>(c.b, c.g, k.w, k.z), vec4<f32>(c.g, c.b, k.x, k.y), step(c.b, c.g));
-    let q = mix(vec4<f32>(p.x, p.y, p.w, c.r), vec4<f32>(c.r, p.y, p.z, p.x), step(p.x, c.r));
-    let d = q.x - min(q.w, q.y);
-    let e = 1e-6;
-    return vec3<f32>(abs(q.z + (q.w - q.y) / (6.0 * d + e)), d / (q.x + e), q.x);
-}
-fn hsl_to_rgb(c0: vec3<f32>) -> vec3<f32> {
-    let k = vec4<f32>(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
-    let c = vec3<f32>(c0.x, clamp01(c0.y), clamp01(c0.z));
-    let p = abs(fract(c.xxx + k.xyz) * 6.0 - k.www);
-    return c.z * mix(k.xxx, clamp01v(p - k.xxx), c.y);
-}
-fn isolate_hue(hsl: vec3<f32>, center: f32, width: f32) -> f32 {
-    if hsl.y < 1e-2 || hsl.z < 1e-2 {
-        return 0.0;
-    }
-    return pulse_periodic(hsl.x * 360.0, center, width, 360.0);
-}
-fn gain(x: vec3<f32>, k: f32) -> vec3<f32> {
-    let s = step(vec3<f32>(0.5), x);
-    let a = 0.5 * pow(2.0 * mix(x, 1.0 - x, s), vec3<f32>(k));
-    return mix(a, 1.0 - a, s);
-}
+// photon's c19_color_grading (pre-tonemap): bloom, exposure, vignette, and linear input grading
 
 fn grade_input(rgb0: vec3<f32>) -> vec3<f32> {
     var rgb = rgb0 * 0.83 * grade_brightness;
@@ -34,20 +8,6 @@ fn grade_input(rgb0: vec3<f32>) -> vec3<f32> {
     rgb = max(exp2(rgb) - eps, vec3<f32>(0.0));
     let lum = dot(rgb, luminance_weights);
     return max(mix(vec3<f32>(lum), rgb, 0.98 * grade_saturation), vec3<f32>(0.0));
-}
-
-fn grade_output(rgb0: vec3<f32>) -> vec3<f32> {
-    var rgb = sqrt(rgb0);
-    var hsl = rgb_to_hsl(rgb);
-    let orange = isolate_hue(hsl, 30.0, 20.0);
-    hsl.y *= 1.0 + grade_orange_sat_boost * orange;
-    let teal = isolate_hue(hsl, 210.0, 20.0);
-    hsl.y *= 1.0 + grade_teal_sat_boost * teal;
-    let green = isolate_hue(hsl, 90.0, 44.0);
-    hsl.y *= 1.0 + grade_green_sat_boost * green;
-    rgb = hsl_to_rgb(hsl);
-    rgb = gain(rgb, 1.05);
-    return rgb * rgb;
 }
 
 fn vignette_amount(uv: vec2<f32>) -> f32 {
@@ -79,11 +39,6 @@ fn post(input: PostInput) -> vec4<f32> {
     if vignette {
         color *= vignette_amount(input.uv);
     }
-    color = grade_input(color);
-    color = apply_tonemap(color);
-    color = clamp01v(color * rec2020_to_rec709);
-    color = grade_output(color);
-    let dither = interleaved_gradient_noise(input.pixel + f32(frame.frame_index % 64u) * 5.588238);
-    let display = clamp01v(srgb_eotf(color) + (dither - 0.5) / 255.0);
-    return vec4<f32>(display, input.color.a);
+    color = rec2020_to_linear(grade_input(linear_to_rec2020(color)));
+    return vec4<f32>(color, 1.0);
 }

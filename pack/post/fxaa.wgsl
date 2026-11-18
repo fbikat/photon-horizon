@@ -1,6 +1,10 @@
-// photon's c21_fxaa: fxaa 3.11 (quality) on the graded picture
+// photon's c21_fxaa: fxaa 3.11 (quality) in linear HDR light (perceptual luma for edge detection)
 
-fn fxaa_luma(c: vec3<f32>) -> f32 { return dot(c, vec3<f32>(0.299, 0.587, 0.114)); }
+fn fxaa_luma(c: vec3<f32>) -> f32 {
+    let n = max(c, vec3<f32>(0.0));
+    let p = sqrt(n / (1.0 + n));
+    return dot(p, vec3<f32>(0.299, 0.587, 0.114));
+}
 fn fxaa_tap(uv: vec2<f32>) -> vec3<f32> { return textureSampleLevel(previous, linear_sampler, uv, 0.0).rgb; }
 
 fn post(input: PostInput) -> vec4<f32> {
@@ -89,5 +93,5 @@ fn post(input: PostInput) -> vec4<f32> {
     } else {
         fuv.x += final_off * step_len;
     }
-    return vec4<f32>(fxaa_tap(fuv), input.color.a);
+    return vec4<f32>(fxaa_tap(fuv), 1.0);
 }

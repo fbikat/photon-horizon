@@ -93,9 +93,10 @@ const xyz_to_rec2020 = mat3x3<f32>(
 const luminance_weights = vec3<f32>(0.2627, 0.6780, 0.0593);
 const luminance_weights_rec709 = vec3<f32>(0.2126, 0.7152, 0.0722);
 
-fn srgb_eotf(l: vec3<f32>) -> vec3<f32> { return 1.14374 * (-0.126893 * l + sqrt(max(l, vec3<f32>(0.0)))); }
 fn srgb_eotf_inv(s: vec3<f32>) -> vec3<f32> { return s * (s * (s * 0.305306011 + 0.682171111) + 0.012522878); }
-fn from_srgb(x: vec3<f32>) -> vec3<f32> { return pow(x, vec3<f32>(2.2)) * rec709_to_rec2020; }
+fn from_srgb(x: vec3<f32>) -> vec3<f32> { return pow(max(x, vec3<f32>(0.0)), vec3<f32>(2.2)) * rec709_to_rec2020; }
+fn linear_to_rec2020(c: vec3<f32>) -> vec3<f32> { return max(c, vec3<f32>(0.0)) * rec709_to_rec2020; }
+fn rec2020_to_linear(c: vec3<f32>) -> vec3<f32> { return max(c * rec2020_to_rec709, vec3<f32>(0.0)); }
 
 fn blackbody(t: f32) -> vec3<f32> {
     let lambda = vec3<f32>(660.0, 550.0, 440.0);
@@ -109,18 +110,6 @@ fn blackbody(t: f32) -> vec3<f32> {
     let d = exp(b / t);
     let rgb = a * d - a;
     return min_of(rgb) / rgb;
-}
-
-// the world picture is 8-bit, so linear hdr is stored as srgb(reinhard(rec709)) and decoded in post
-fn encode_hdr(working: vec3<f32>, dither: f32) -> vec3<f32> {
-    let c = max(working * rec2020_to_rec709, vec3<f32>(0.0));
-    let s = srgb_eotf(c / (1.0 + c));
-    return clamp01v(s + (dither - 0.5) / 255.0);
-}
-fn decode_hdr(stored: vec3<f32>) -> vec3<f32> {
-    // cap at 32: vanilla-drawn pure white (moon, ui-bright entities) must not decode to a blaze
-    let y = min(srgb_eotf_inv(clamp01v(stored)), vec3<f32>(0.97));
-    return (y / (1.0 - y)) * rec709_to_rec2020;
 }
 
 // photon's custom uniforms (shaders.properties)
@@ -493,7 +482,7 @@ fn tonemap_aces_fit(rgb0: vec3<f32>) -> vec3<f32> {
     return clamp01v((rgb * (2.51 * rgb + 0.03)) / (rgb * (2.43 * rgb + 0.59) + 0.14));
 }
 fn apply_tonemap(rgb: vec3<f32>) -> vec3<f32> {
-    switch tonemap {
+    switch tonemap_operator {
         case 1u: { return tonemap_aces_fit(rgb); }
         case 2u: { return tonemap_hejl_2015(rgb); }
         case 3u: { return tonemap_uncharted_2(rgb); }

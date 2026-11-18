@@ -145,7 +145,7 @@ fn get_shadows(position: vec3<f32>, flat_normal: vec3<f32>, nol: f32, sss_amount
             let st = textureSampleCompareLevel(shadow_map_translucent, shadow_sampler, uv, ref_z);
             let texel = clamp(vec2<i32>(uv * vec2<f32>(textureDimensions(shadow_color))), vec2<i32>(0), vec2<i32>(textureDimensions(shadow_color)) - 1);
             let c = textureLoad(shadow_color, texel, 0);
-            let tint = select(from_srgb(c.rgb), vec3<f32>(1.0), c.a >= 0.999);
+            let tint = select(linear_to_rec2020(c.rgb), vec3<f32>(1.0), c.a >= 0.999);
             color_sum += mix(tint, vec3<f32>(1.0), st);
         }
     }
@@ -180,8 +180,8 @@ fn get_material(input: MaterialInput, albedo: vec3<f32>) -> Mat {
     }
     // light sources: photon masks the bright texels of emissive blocks
     if input.emission > 0.0 {
-        let srgb = input.albedo.rgb;
-        let mask = select(linear_step(0.5, 0.9, max_of(srgb)), 1.0, input.fluid == 2u);
+        let srgb_max = pow(max_of(clamp01v(input.albedo.rgb)), 1.0 / 2.2);
+        let mask = select(linear_step(0.5, 0.9, srgb_max), 1.0, input.fluid == 2u);
         m.emission = input.emission * mask * 0.66;
     }
     if block_pbr_maps() {
@@ -239,7 +239,7 @@ fn get_diffuse_lighting(m: Mat, position: vec3<f32>, normal: vec3<f32>, flat_nor
         lighting += skylight * sqr(light_levels.y);
     } else {
         // nether and end: photon's flat ambient tinted by the fog
-        let fog = from_srgb(frame.fog_color);
+        let fog = linear_to_rec2020(frame.fog_color);
         skylight = 16.0 * directional * mix(fog, vec3<f32>(dot(fog, luminance_weights)), 0.5) * 0.05 * ao;
         lighting += skylight;
     }
@@ -249,7 +249,7 @@ fn get_diffuse_lighting(m: Mat, position: vec3<f32>, normal: vec3<f32>, flat_nor
     let falloff = get_blocklight_falloff(light_levels.x, light_levels.y, ao, t);
     lighting += falloff * directional * 6.0 * blocklight_color;
     // horizon's coloured block light and dynamic lights, where a light reaches
-    lighting += from_srgb(input_colored_light) * 6.0 * blocklight_i;
+    lighting += linear_to_rec2020(input_colored_light) * 6.0 * blocklight_i;
 
     lighting += m.emission * 40.0 * emission_strength;
 
@@ -347,10 +347,16 @@ fn biome_water_coeff(biome_water_color: vec3<f32>) -> vec3<f32> {
 
 // a texel on the segment between vanilla's fog (horizon) and sky (zenith) colours
 fn mirror_is_vanilla_sky(m: vec3<f32>) -> bool {
-    let f = frame.fog_color;
-    let d = frame.sky_color - f;
-    let t = clamp01(dot(m - f, d) / max(dot(d, d), 1e-5));
-    return distance(m, f + t * d) < 0.04;
+    if max_of(m) > 1.05 {
+        return false;
+    }
+    let g = vec3<f32>(1.0 / 2.2);
+    let mg = pow(clamp01v(m), g);
+    let fg = pow(clamp01v(frame.fog_color), g);
+    let sg = pow(clamp01v(frame.sky_color), g);
+    let d = sg - fg;
+    let t = clamp01(dot(mg - fg, d) / max(dot(d, d), 1e-5));
+    return distance(mg, fg + t * d) < 0.04;
 }
 
 fn shade_water(input: MaterialInput, dither: f32, t: Times) -> vec4<f32> {
@@ -387,12 +393,13 @@ fn shade_water(input: MaterialInput, dither: f32, t: Times) -> vec4<f32> {
         tx = texel_straight;
         behind_depth = textureLoad(opaque_depth, tx, 0);
     }
-    let behind = decode_hdr(textureLoad(opaque_color, tx, 0).rgb);
+    let behind = linear_to_rec2020(textureLoad(opaque_color, tx, 0).rgb);
     let behind_dist = select(screen_depth_to_distance(input.screen, behind_depth), 1e4, behind_depth <= 0.0);
     let layer_dist = max0(behind_dist - surface_dist);
 
     // absorption and in-scattering (photon's water_fog_simple)
-    let biome_color = srgb_eotf_inv(input.tint.rgb / max(vanilla_face_shade(input.normal), 0.5)) * rec709_to_rec2020;
+    let shade = pow(vanilla_face_shade(input.normal), 2.2);
+    let biome_color = linear_to_rec2020(input.tint.rgb / max(shade, 1e-4));
     let absorption = biome_water_coeff(biome_color);
     let scattering_coeff = vec3<f32>(0.01);
     let extinction = scattering_coeff + absorption;
@@ -420,7 +427,7 @@ fn shade_water(input: MaterialInput, dither: f32, t: Times) -> vec4<f32> {
             * (1.0 - cube(linear_step(0.0, 0.5, input.light.y)));
         color += clamp01v(0.5 * exp(-2.0 * absorption) * highlight) * (get_sky_color() * input.light.y + 0.1) * rcp_pi;
     } else if water_texture == 2u {
-        let vanilla = from_srgb(input.albedo.rgb * input.tint.rgb);
+        let vanilla = linear_to_rec2020(input.albedo.rgb * input.tint.rgb);
         color = mix(color, vanilla * (get_sky_color() * sqr(input.light.y) + light_color * 0.2) * rcp_pi, input.albedo.a * 0.5);
     }
 
@@ -434,13 +441,13 @@ fn shade_water(input: MaterialInput, dither: f32, t: Times) -> vec4<f32> {
         let mirrored = textureSampleLevel(reflection, reflection_sampler, ruv, 0.0).rgb;
         let sky_refl = atmosphere_scattering_both(normalize(vec3<f32>(refl_dir.x, max(refl_dir.y, 0.0), refl_dir.z)), sun_color(), moon_color())
             * sqr(input.light.y) * (1.0 - frame.rain * 0.5);
-        // the mirror shows vanilla's sky gradient behind terrain: that is no hdr, use photon's sky there
-        reflected = select(decode_hdr(mirrored), sky_refl, mirror_is_vanilla_sky(mirrored));
+        // the mirror shows vanilla's sky gradient behind terrain: use photon's sky there
+        reflected = select(linear_to_rec2020(mirrored), sky_refl, mirror_is_vanilla_sky(mirrored));
     } else if in_overworld() {
         reflected = atmosphere_scattering_both(normalize(vec3<f32>(refl_dir.x, max(refl_dir.y, 0.0), refl_dir.z)), sun_color(), moon_color());
         reflected *= sqr(input.light.y) * (1.0 - frame.rain * 0.5);
     } else {
-        reflected = from_srgb(frame.fog_color) * 0.1;
+        reflected = linear_to_rec2020(frame.fog_color) * 0.1;
     }
     color = mix(color, reflected, fresnel);
 
@@ -464,14 +471,13 @@ fn material(input: MaterialInput) -> Surface {
 
     if input.fluid == 1u {
         let water = shade_water(input, dither, t);
-        return Surface(vec4<f32>(encode_hdr(water.rgb, dither), 1.0));
+        return Surface(vec4<f32>(rec2020_to_linear(water.rgb), 1.0));
     }
 
-    let shade = vanilla_face_shade(input.normal);
-    let tint = input.tint.rgb / shade;
-    let albedo_srgb = clamp01v(input.albedo.rgb * tint);
-    let albedo = srgb_eotf_inv(albedo_srgb) * rec709_to_rec2020;
-    var m = get_material(input, max(albedo, vec3<f32>(0.0)));
+    let shade = pow(vanilla_face_shade(input.normal), 2.2);
+    let tint = input.tint.rgb / max(shade, 1e-4);
+    let albedo = linear_to_rec2020(clamp01v(input.albedo.rgb * tint));
+    var m = get_material(input, albedo);
 
     let flat_normal = input.normal;
     var normal = flat_normal;
@@ -515,5 +521,5 @@ fn material(input: MaterialInput) -> Surface {
     }
 
     color = purkinje_shift_apply(color, light_levels);
-    return Surface(vec4<f32>(encode_hdr(color, dither), input.albedo.a));
+    return Surface(vec4<f32>(rec2020_to_linear(color), input.albedo.a));
 }

@@ -101,18 +101,69 @@ fn biome_water_coeff(biome_water_color: vec3<f32>) -> vec3<f32> {
     return max(base + biome * 0.33, vec3<f32>(0.0));
 }
 
-// a texel on the segment between vanilla's fog (horizon) and sky (zenith) colours
-fn mirror_is_vanilla_sky(m: vec3<f32>) -> bool {
-    if max_of(m) > 1.05 {
-        return false;
+// Fast screen-space reflection raymarch against opaque_depth/opaque_color when hardware RT is off
+fn trace_water_ssr(pos: vec3<f32>, refl_dir: vec3<f32>, sky_refl: vec3<f32>, dither: f32) -> vec3<f32> {
+    let steps = 12;
+    let size = frame.resolution;
+    let isize = vec2<i32>(size);
+    var step_pos = pos + refl_dir * (0.25 + dither * 0.5);
+    var hit_uv = vec2<f32>(-1.0);
+    var prev_pos = pos;
+    for (var i = 0; i < steps; i++) {
+        let ray_step = 0.75 + 0.55 * f32(i);
+        prev_pos = step_pos;
+        step_pos += refl_dir * ray_step;
+        let clip = frame.projection * (frame.view * vec4<f32>(step_pos, 1.0));
+        if clip.w <= 0.0 {
+            break;
+        }
+        let ndc = clip.xyz / clip.w;
+        let uv = vec2<f32>(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
+        if any(uv < vec2<f32>(0.0)) || any(uv > vec2<f32>(1.0)) {
+            break;
+        }
+        let tx = clamp(vec2<i32>(uv * size), vec2<i32>(0), isize - 1);
+        let scene_d = textureLoad(opaque_depth, tx, 0);
+        if scene_d > 0.0 {
+            let scene_dist = screen_depth_to_distance(uv, scene_d);
+            let ray_dist = length(step_pos);
+            let diff = ray_dist - scene_dist;
+            if diff > 0.0 && diff < ray_step * 2.2 + 0.6 {
+                var lo = prev_pos;
+                var hi = step_pos;
+                for (var r = 0; r < 2; r++) {
+                    let mid = 0.5 * (lo + hi);
+                    let mc = frame.projection * (frame.view * vec4<f32>(mid, 1.0));
+                    if mc.w <= 0.0 {
+                        break;
+                    }
+                    let muv = clamp(vec2<f32>(mc.x / mc.w * 0.5 + 0.5, 0.5 - mc.y / mc.w * 0.5), vec2<f32>(0.0), vec2<f32>(1.0));
+                    let mtx = clamp(vec2<i32>(muv * size), vec2<i32>(0), isize - 1);
+                    let md = textureLoad(opaque_depth, mtx, 0);
+                    let mdist = select(1e4, screen_depth_to_distance(muv, md), md > 0.0);
+                    if length(mid) > mdist {
+                        hi = mid;
+                    } else {
+                        lo = mid;
+                    }
+                }
+                let hc = frame.projection * (frame.view * vec4<f32>(hi, 1.0));
+                if hc.w > 0.0 {
+                    hit_uv = vec2<f32>(hc.x / hc.w * 0.5 + 0.5, 0.5 - hc.y / hc.w * 0.5);
+                }
+                break;
+            }
+        }
     }
-    let g = vec3<f32>(1.0 / 2.2);
-    let mg = pow(clamp01v(m), g);
-    let fg = pow(clamp01v(frame.fog_color), g);
-    let sg = pow(clamp01v(frame.sky_color), g);
-    let d = sg - fg;
-    let t = clamp01(dot(mg - fg, d) / max(dot(d, d), 1e-5));
-    return distance(mg, fg + t * d) < 0.04;
+    if all(hit_uv >= vec2<f32>(0.0)) && all(hit_uv <= vec2<f32>(1.0)) {
+        let edge_x = min(hit_uv.x, 1.0 - hit_uv.x);
+        let edge_y = min(hit_uv.y, 1.0 - hit_uv.y);
+        let edge = smoothstep(0.0, 0.12, min(edge_x, edge_y));
+        let htx = clamp(vec2<i32>(hit_uv * size), vec2<i32>(0), isize - 1);
+        let ssr_col = linear_to_rec2020(textureLoad(opaque_color, htx, 0).rgb);
+        return mix(sky_refl, ssr_col, edge);
+    }
+    return sky_refl;
 }
 
 fn sky_reflection_color(refl_dir: vec3<f32>, skylight: f32, unoccluded: bool) -> vec3<f32> {
@@ -262,17 +313,15 @@ fn shade_water(input: MaterialInput, ray: vec3<f32>, normal: vec3<f32>, refl_dir
         color = mix(color, vanilla * (get_sky_color() * sqr(input.light.y) + light_color * 0.2) * rcp_pi, input.albedo.a * 0.5);
     }
 
-    // reflections: hardware RT -> mirror fallback -> photon sky
+    // reflections: hardware RT -> fast screen-space reflection (SSR) -> photon sky
     let n_rel = select(1.333, 1.0 / 1.333, underwater);
     let fresnel = fresnel_dielectric(nov, n_rel);
     let sky_refl = sky_reflection_color(refl_dir, skylight, traced && rt_hit.distance < 0.0);
     var reflected = sky_refl;
     if traced && rt_hit.distance >= 0.0 {
         reflected = shade_ray_hit(rt_hit, refl_dir, sky_refl, t);
-    } else if !traced && frame.has_reflection != 0u && water_reflections && !underwater && input.face == 1u {
-        let ruv = clamp(input.screen + normal.xz * 0.02, vec2<f32>(0.0), vec2<f32>(1.0));
-        let mirrored = textureSampleLevel(reflection, reflection_sampler, ruv, 0.0).rgb;
-        reflected = select(linear_to_rec2020(mirrored), sky_refl, mirror_is_vanilla_sky(mirrored));
+    } else if !traced && water_reflections && !underwater {
+        reflected = trace_water_ssr(input.position, refl_dir, sky_refl, dither);
     }
     color = mix(color, reflected, fresnel);
 

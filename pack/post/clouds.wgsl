@@ -416,9 +416,12 @@ fn post(input: PostInput) -> vec4<f32> {
     let prev_clip = frame.previous_view_projection * vec4<f32>(ray_dir * 1e4, 1.0);
     let prev_uv = vec2<f32>(prev_clip.x / prev_clip.w * 0.5 + 0.5, 0.5 - prev_clip.y / prev_clip.w * 0.5);
     let on_screen = prev_clip.w > 0.0 && all(prev_uv >= vec2<f32>(0.0)) && all(prev_uv <= vec2<f32>(1.0));
-    if !on_screen || frame.delta_time <= 0.0 || depth > 0.0 {
+    if !on_screen || frame.delta_time <= 0.0 || (depth > 0.0 && current.a >= 0.999) {
         return current;
     }
     let history = textureSampleLevel(clouds_hist, linear_sampler, prev_uv, 0.0);
-    return mix(history, current, 0.15);
+    // Stabilize clouds visible over distant terrain while keeping edges crisp when occlusion shifts
+    let alpha_diff = abs(history.a - current.a);
+    let blend = select(0.15, clamp(0.35 + alpha_diff * 0.65, 0.35, 1.0), depth > 0.0);
+    return mix(history, current, blend);
 }

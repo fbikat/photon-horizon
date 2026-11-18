@@ -44,9 +44,6 @@ distance_option = "shadow_distance"
 
 [ray_tracing]
 
-[reflection]
-option = "water_reflections"
-
 [[resource]]
 name = "exposure_tex"
 format = "r32float"
@@ -63,6 +60,12 @@ scale = 0.5
 file = "post/clouds_history.wgsl"
 name = "Clouds history"
 output = "clouds_hist"
+scale = 0.5
+
+[[post]]
+file = "post/vl.wgsl"
+name = "Volumetric light"
+output = "vl_tex"
 scale = 0.5
 
 [[post]]
@@ -103,7 +106,7 @@ name = "FXAA"
 
 [[post]]
 file = "post/final.wgsl"
-name = "CAS"
+name = "EASU & CAS"
 
 [tonemap]
 file = "tonemap.wgsl"
@@ -600,7 +603,7 @@ id = "water_reflections"
 name = "Water Reflections"
 type = "bool"
 default = true
-description = "Horizon's mirror of the world in water."
+description = "Ray-traced and screen-space reflections in water."
 
 [[options]]
 id = "bloom"

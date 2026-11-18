@@ -62,7 +62,7 @@ pages = [
         ('water_wave_strength', 'Wave Strength', F, 1.0, 0.0, 2.0, 0.05, '0: flat water without waves.'),
         ('water_absorption', 'Water Absorption', F, 1.0, 0.0, 3.0, 0.05, 'How quickly light fades in water.'),
         ('water_texture', 'Water Texture', C, ['Off', 'Highlight', 'Vanilla'], 'Highlight', ''),
-        ('water_reflections', 'Water Reflections', B, True, "Horizon's mirror of the world in water."),
+        ('water_reflections', 'Water Reflections', B, True, 'Ray-traced and screen-space reflections in water.'),
     ]),
     ('post', 'Post-Processing', 'Bloom, colour grading and anti-aliasing.', [
         ('bloom', 'Bloom', B, True, ''),

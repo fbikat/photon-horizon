@@ -46,26 +46,33 @@ fn compute_ssao(uv: vec2<f32>, texel: vec2<i32>, pos: vec3<f32>, dist: f32, dith
     return mix(1.0, raw_ao, dist_fade);
 }
 
-fn vl_visibility(ray_dir: vec3<f32>, dist: f32, dither: f32) -> f32 {
+fn sample_vl(uv: vec2<f32>, dist: f32) -> f32 {
     if !vl || frame.has_shadow == 0u {
         return 1.0;
     }
-    let max_dist = min(dist, frame.shadow_distance);
-    let steps = 12;
-    let step_length = max_dist / f32(steps);
-    var lit = 0.0;
-    for (var i = 0; i < steps; i++) {
-        let p = ray_dir * step_length * (f32(i) + dither);
-        let s = shadow_position(p);
-        if any(s.xy < vec2<f32>(0.0)) || any(s.xy > vec2<f32>(1.0)) {
-            lit += 1.0;
-            continue;
+    let dim = vec2<i32>(textureDimensions(vl_tex));
+    let fcoord = clamp(uv * vec2<f32>(dim) - 0.5, vec2<f32>(0.0), vec2<f32>(dim - 1));
+    let p0 = vec2<i32>(fcoord);
+    let f = fract(fcoord);
+    let ref_d = min(dist, 65000.0);
+    var sum_v = 0.0;
+    var sum_w = 0.0;
+    for (var dy = 0; dy < 2; dy++) {
+        for (var dx = 0; dx < 2; dx++) {
+            let tx = clamp(p0 + vec2<i32>(dx, dy), vec2<i32>(0), dim - 1);
+            let s = textureLoad(vl_tex, tx, 0);
+            let wx = select(1.0 - f.x, f.x, dx == 1);
+            let wy = select(1.0 - f.y, f.y, dy == 1);
+            let depth_w = exp(-abs(s.g - ref_d) / max(ref_d * 0.15, 2.0));
+            let w = wx * wy * depth_w;
+            sum_v += s.r * w;
+            sum_w += w;
         }
-        lit += textureSampleCompareLevel(shadow_map, shadow_sampler, s.xy, s.z);
     }
-    let visible = lit / f32(steps);
-    // past the shadow map the light is unshadowed
-    return mix(1.0, visible, max_dist / max(dist, eps));
+    if sum_w > 1e-4 {
+        return sum_v / sum_w;
+    }
+    return textureSampleLevel(vl_tex, linear_sampler, uv, 0.0).r;
 }
 
 fn post(input: PostInput) -> vec4<f32> {
@@ -140,7 +147,7 @@ fn post(input: PostInput) -> vec4<f32> {
             // air fog with the light's share shadowed along the ray
             if !is_sky {
                 let fog = air_fog_analytic(dist, ray_dir, skylight);
-                let shafts = vl_visibility(ray_dir, dist, dither);
+                let shafts = sample_vl(input.uv, dist);
                 color = color * fog[1] + fog[0] * mix(1.0, shafts, clamp01(vl_intensity));
             }
         }
@@ -157,7 +164,7 @@ fn post(input: PostInput) -> vec4<f32> {
             var light = get_light_color() * smoothstep(0.0, 0.25, sky_l) * (0.7 * henyey_greenstein_phase(lov, 0.4) + 0.3 * isotropic_phase);
             light += get_sky_color() * sky_l * isotropic_phase;
             if vl && frame.has_shadow != 0u {
-                light *= 0.3 + 0.7 * vl_visibility(ray_dir, d, dither);
+                light *= 0.3 + 0.7 * sample_vl(input.uv, dist);
             }
             let ms = 0.84 * scattering / ext;
             let s = light * (1.0 - t) * scattering / ext * (1.0 + ms / (1.0 - ms));

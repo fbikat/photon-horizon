@@ -11,7 +11,7 @@ fn weather(input: WeatherInput) -> vec4<f32> {
     if !in_overworld() {
         color = linear_to_rec2020(input.color.rgb);
     }
-    let blocklight_color = from_srgb(vec3<f32>(blocklight_r, blocklight_g, blocklight_b)) * blocklight_i;
+    let blocklight_color = get_blocklight_color() * blocklight_i;
     color = color * (0.2 + 0.8 * input.light.y) + blocklight_color * sqr(input.light.x);
     let alpha = select(0.4, 0.6, input.snow) * input.color.a;
     return vec4<f32>(rec2020_to_linear(color * 2.0), alpha);

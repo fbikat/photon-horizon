@@ -1,6 +1,9 @@
-// photon's c5-c10 bloom downsample (the 13-tap filter from call of duty advanced warfare), first level
+// photon's c5-c10 bloom downsample (13-tap CoD:AW filter), level 1 (reads taa_hist when TAA is active)
 
 fn bloom_tap(uv: vec2<f32>) -> vec3<f32> {
+    if taa {
+        return textureSampleLevel(taa_hist, linear_sampler, uv, 0.0).rgb;
+    }
     return textureSampleLevel(previous, linear_sampler, uv, 0.0).rgb;
 }
 

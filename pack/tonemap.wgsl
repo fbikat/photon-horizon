@@ -33,11 +33,11 @@ fn grade_output(rgb0: vec3<f32>) -> vec3<f32> {
     var rgb = sqrt(max(rgb0, vec3<f32>(0.0)));
     var hsl = rgb_to_hsl(rgb);
     let orange = isolate_hue(hsl, 30.0, 20.0);
-    hsl.y *= 1.0 + grade_orange_sat_boost * orange;
+    hsl.y *= 1.0 + grade_vibrance * 0.6 * orange;
     let teal = isolate_hue(hsl, 210.0, 20.0);
-    hsl.y *= 1.0 + grade_teal_sat_boost * teal;
+    hsl.y *= 1.0 + (0.1 + grade_vibrance) * teal;
     let green = isolate_hue(hsl, 90.0, 44.0);
-    hsl.y *= 1.0 + grade_green_sat_boost * green;
+    hsl.y *= 1.0 + grade_vibrance * 0.6 * green;
     rgb = hsl_to_rgb(hsl);
     rgb = gain(rgb, 1.05);
     return rgb * rgb;

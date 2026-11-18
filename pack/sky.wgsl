@@ -1,4 +1,4 @@
-// photon's include/sky/sky.glsl draw_sky: atmosphere, sun disc, stars and galaxy
+// photon's include/sky/sky.glsl draw_sky: atmosphere, sun disc, moon phases, stars, galaxy, End black hole
 
 fn draw_sun(ray_dir: vec3<f32>) -> vec3<f32> {
     let radius = sun_radius();
@@ -8,6 +8,42 @@ fn draw_sun(ray_dir: vec3<f32>) -> vec3<f32> {
     let center_to_edge = max0(radius - fast_acos(nu));
     let limb_darkening = pow(vec3<f32>(1.0 - sqr(1.0 - center_to_edge)), 0.5 * alpha);
     return sun_luminance * sun_color() * step(0.0, center_to_edge) * limb_darkening;
+}
+
+// photon's include/sky/sky.glsl draw_moon + horizon's frame.moon_phase (0 full .. 4 new .. 7 waxing gibbous)
+fn draw_moon(ray_dir: vec3<f32>) -> vec4<f32> {
+    let md = moon_dir();
+    let radius = moon_angular_radius();
+    let mov = dot(ray_dir, md);
+    if mov < cos(radius) {
+        return vec4<f32>(0.0);
+    }
+    let dist = clamp01(fast_acos(mov) / radius);
+    let up_ref = select(vec3<f32>(0.0, 1.0, 0.0), vec3<f32>(1.0, 0.0, 0.0), abs(md.y) > 0.999);
+    let tangent = normalize(cross(up_ref, md));
+    let bitangent = normalize(cross(tangent, md));
+    let rel = ray_dir - md;
+    let offset = fract(vec2<f32>(dot(rel, tangent), dot(rel, bitangent)) * 3.5 + 0.5);
+    let noise = textureSampleLevel(noisetex, noisetex_sampler, 2.0 * offset, 0.0).xyz;
+    let moon_tex = pow1d5(noise.x) * 0.75 + 0.6 * cube(noise.y) - 0.1 * noise.z;
+
+    let moon_dist = intersect_sphere_ray(-md, ray_dir, sin(radius)).x;
+    let moon_normal = normalize(ray_dir * max(moon_dist, 0.0) - md);
+    let light_angle = 0.125 * tau * f32(frame.moon_phase & 7u);
+    let left_dir = normalize(cross(up_ref, ray_dir));
+    let l_dir = cos(light_angle) * (-ray_dir) + sin(light_angle) * left_dir;
+    let moon_shadow = dampen(max0(dot(moon_normal, l_dir)));
+
+    let edge_glow = pow8(dist);
+    let base_tint = from_srgb(vec3<f32>(0.75, 0.83, 1.0));
+    let lit_col = base_tint * vec3<f32>(1.0, 0.94, 1.0);
+    let glow_col = base_tint * vec3<f32>(0.90, 1.0, 1.0);
+    var c = max(
+        moon_shadow * lit_col * (1.0 + 4.0 * edge_glow),
+        0.5 * glow_col * (0.1 + 0.1 * edge_glow),
+    ) * (0.2 + 0.8 * max0(moon_tex));
+    c = 10.0 * moon_i * c * c;
+    return vec4<f32>(c, 1.0);
 }
 
 fn unstable_star_field(coord: vec2<f32>, threshold: f32) -> vec3<f32> {
@@ -52,7 +88,10 @@ fn sky(input: SkyInput) -> vec4<f32> {
     if in_end() {
         var end_col = end_sky_color(ray_dir);
         let cel_end = vec3<f32>(ray_dir.x, ray_dir.z, ray_dir.y);
-        end_col += draw_stars(cel_end, 0.0) * vec3<f32>(0.78, 0.68, 1.0) * 0.65;
+        let stars_fade = exp2(-0.12 * max0(1.0 - ray_dir.y)) * linear_step(-0.2, 0.0, ray_dir.y);
+        let bh = draw_end_black_hole(ray_dir);
+        end_col += draw_stars(cel_end, 0.0) * vec3<f32>(0.78, 0.68, 1.0) * 0.65 * stars_fade * (1.0 - bh.a);
+        end_col = end_col * (1.0 - bh.a * 0.92) + bh.rgb;
         return vec4<f32>(rec2020_to_linear(end_col), 1.0);
     }
     if in_nether() {
@@ -78,6 +117,8 @@ fn sky(input: SkyInput) -> vec4<f32> {
     }
     sky_col += draw_stars(cel, galaxy_luminance);
     sky_col += draw_sun(ray_dir);
+    let moon = draw_moon(ray_dir);
+    sky_col = sky_col * (1.0 - moon.a) + moon.rgb;
 
     sky_col *= atmosphere_transmittance(ray_dir.y, planet_radius) * (1.0 - frame.rain);
     sky_col += atmosphere;

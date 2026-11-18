@@ -14,6 +14,8 @@ fn post(input: PostInput) -> vec4<f32> {
             var c: vec3<f32>;
             if bloom {
                 c = textureSampleLevel(bloom_b, linear_sampler, uv, 0.0).rgb;
+            } else if taa {
+                c = textureSampleLevel(taa_hist, linear_sampler, uv, 0.0).rgb;
             } else {
                 c = textureSampleLevel(previous, linear_sampler, uv, 0.0).rgb;
             }
@@ -24,7 +26,7 @@ fn post(input: PostInput) -> vec4<f32> {
     }
     let avg_lum = exp2(sum_log / max(sum_w, eps));
     let target_ev = clamp(log2(avg_lum / 0.35), -1.1, 2.0);
-    if frame.delta_time <= 0.0 {
+    if frame.delta_time <= 0.0 || frame.reset_reasons != 0u {
         return vec4<f32>(target_ev, 0.0, 0.0, 1.0);
     }
     let prev_ev = textureLoad(exposure_tex_previous, vec2<i32>(0, 0), 0).r;

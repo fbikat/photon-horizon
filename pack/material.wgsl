@@ -6,7 +6,32 @@ const MAT_TALL_UPPER: u32 = 4u;
 const MAT_LEAVES: u32 = 5u;
 const MAT_VINES: u32 = 6u;
 
-fn get_material(input: MaterialInput, albedo: vec3<f32>) -> Mat {
+fn sample_cloud_shadow_mat(scene_pos: vec3<f32>) -> f32 {
+    if !cloud_shadows || !clouds_cumulus || !in_overworld() {
+        return 1.0;
+    }
+    let uv = project_cloud_shadow_uv(scene_pos);
+    if any(uv < vec2<f32>(0.0)) || any(uv > vec2<f32>(1.0)) {
+        return 1.0;
+    }
+    let cs = textureSampleLevel(cloud_shadow_tex, reflection_sampler, uv, 0.0).r;
+    let fade = get_cloud_shadow_fade(scene_pos);
+    return cs * fade + (1.0 - fade);
+}
+
+fn get_ripple_height(coord: vec2<f32>) -> f32 {
+    let t = frame.time * 0.1;
+    let n0 = textureSampleLevel(noisetex, noisetex_sampler, coord * 0.3 + t * vec2<f32>(0.6, 0.8), 0.0).y;
+    let n1 = textureSampleLevel(noisetex, noisetex_sampler, coord * 0.3 + t * vec2<f32>(-0.3846154, -0.9230769), 0.0).y;
+    return mix(n0, n1, 0.5);
+}
+
+struct MaterialSpec {
+    mat: Mat,
+    porosity: f32,
+}
+
+fn get_material(input: MaterialInput, albedo: vec3<f32>) -> MaterialSpec {
     var m: Mat;
     m.albedo = albedo;
     m.sss_amount = 0.0;
@@ -14,6 +39,7 @@ fn get_material(input: MaterialInput, albedo: vec3<f32>) -> Mat {
     m.emission = 0.0;
     m.f0 = 0.02;
     m.roughness = 1.0;
+    var porosity = 0.15;
     switch input.material {
         case 2u, 3u, 4u: {
             m.sss_amount = 0.5;
@@ -28,7 +54,6 @@ fn get_material(input: MaterialInput, albedo: vec3<f32>) -> Mat {
         }
         default: {}
     }
-    // light sources: photon masks the bright texels of emissive blocks
     if input.emission > 0.0 {
         let srgb_max = pow(max_of(clamp01v(input.albedo.rgb)), 1.0 / 2.2);
         let mask = select(linear_step(0.5, 0.9, srgb_max), 1.0, input.fluid == 2u);
@@ -44,11 +69,15 @@ fn get_material(input: MaterialInput, albedo: vec3<f32>) -> Mat {
         if spec.a < 0.999 && spec.a > 0.0 {
             m.emission = max(m.emission, spec.a * 0.5);
         }
-        if spec.b * 255.0 > 64.5 {
-            m.sss_amount = max(m.sss_amount, (spec.b * 255.0 - 65.0) / 190.0);
+        let b255 = spec.b * 255.0;
+        if b255 > 64.5 {
+            m.sss_amount = max(m.sss_amount, (b255 - 65.0) / 190.0);
+            porosity = 0.0;
+        } else if spec.b > 0.0 {
+            porosity = b255 / 64.0;
         }
     }
-    return m;
+    return MaterialSpec(m, porosity);
 }
 
 // photon's include/surface/water_normal.glsl
@@ -173,7 +202,8 @@ fn sky_reflection_color(refl_dir: vec3<f32>, skylight: f32, unoccluded: bool) ->
         return select(sky * sqr(skylight), sky * mix(sqr(skylight), 1.0, 0.75), unoccluded);
     }
     if in_end() {
-        return end_sky_color(refl_dir);
+        let bh = draw_end_black_hole(refl_dir);
+        return end_sky_color(refl_dir) * (1.0 - bh.a * 0.92) + bh.rgb;
     }
     if in_nether() {
         return nether_sky_color(refl_dir);
@@ -200,12 +230,12 @@ fn shade_ray_hit(hit: RayHit, refl_dir: vec3<f32>, sky_refl: vec3<f32>, t: Times
             let fade = linear_step(0.85, 1.0, max(abs(sp.x * 2.0 - 1.0), abs(sp.y * 2.0 - 1.0)));
             hit_shadow = select(sqr(hit_l.y), mix(s, sqr(hit_l.y), fade), in_map);
         }
+        let hit_cs = sample_cloud_shadow_mat(hit.position);
         let hit_nol = lift(max0(dot(hit.normal, l)), 0.25 / shading_strength);
-        lighting += get_light_color() * hit_nol * hit_shadow;
+        lighting += get_light_color() * hit_nol * hit_shadow * hit_cs;
         lighting += get_sky_color() * get_skylight_boost() * skylight_i * sqr(hit_l.y);
         lighting += 0.15 * cave_lighting_i * directional * (1.0 - sqr(hit_l.y)) * (1.0 - 0.7 * frame.darkness);
     } else if in_end() {
-        let end_light_dir = normalize(vec3<f32>(0.0, 0.6, -0.8));
         let end_nol = max0(dot(hit.normal, end_light_dir)) * 0.65 + 0.35;
         lighting += vec3<f32>(0.36, 0.28, 0.56) * directional * end_nol * 1.15;
     } else if in_nether() {
@@ -216,8 +246,9 @@ fn shade_ray_hit(hit: RayHit, refl_dir: vec3<f32>, sky_refl: vec3<f32>, t: Times
         lighting += 16.0 * directional * linear_to_rec2020(frame.fog_color) * 0.05;
     }
 
-    let blocklight_color = from_srgb(vec3<f32>(blocklight_r, blocklight_g, blocklight_b)) * blocklight_i;
-    lighting += get_blocklight_falloff(hit_l.x, hit_l.y, 1.0, t) * directional * 6.0 * blocklight_color;
+    let grid_c = block_light_color(hit.position);
+    let blocklight_col = mix(get_blocklight_color(), linear_to_rec2020(grid_c.rgb), clamp01(grid_c.a * 1.6)) * blocklight_i;
+    lighting += get_blocklight_falloff(hit_l.x, hit_l.y, 1.0, t) * directional * 6.0 * blocklight_col;
 
     if hit.emission > 0.0 {
         let srgb_max = pow(max_of(clamp01v(hit.albedo.rgb)), 1.0 / 2.2);
@@ -258,12 +289,11 @@ fn water_normal(input: MaterialInput, ray: vec3<f32>) -> vec3<f32> {
 }
 
 fn shade_water(input: MaterialInput, ray: vec3<f32>, normal: vec3<f32>, refl_dir: vec3<f32>,
-        rt_hit: RayHit, traced: bool, dither: f32, t: Times) -> vec4<f32> {
+        rt_hit: RayHit, traced: bool, cloud_shadow: f32, dither: f32, t: Times) -> vec4<f32> {
     let skylight = input.light.y;
     let nov = clamp01(dot(normal, -ray));
     let underwater = frame.eye_in == 1u;
 
-    // what lies behind, bent by the waves
     let size = frame.resolution;
     let refract_uv = clamp(input.screen + normal.xz * 0.03 * (1.0 - nov), vec2<f32>(0.0), vec2<f32>(1.0));
     let texel = clamp(vec2<i32>(refract_uv * size), vec2<i32>(0), vec2<i32>(size) - 1);
@@ -279,7 +309,6 @@ fn shade_water(input: MaterialInput, ray: vec3<f32>, normal: vec3<f32>, refl_dir
     let behind_dist = select(screen_depth_to_distance(input.screen, behind_depth), 1e4, behind_depth <= 0.0);
     let layer_dist = max0(behind_dist - surface_dist);
 
-    // absorption and in-scattering (photon's water_fog_simple)
     let shade = pow(vanilla_face_shade(input.normal), 2.2);
     let biome_color = linear_to_rec2020(input.tint.rgb / max(shade, 1e-4));
     let absorption = biome_water_coeff(biome_color);
@@ -289,8 +318,9 @@ fn shade_water(input: MaterialInput, ray: vec3<f32>, normal: vec3<f32>, refl_dir
     let ms_energy = albedo_ms / (1.0 - albedo_ms);
     let skylight_factor = cube(input.light.y);
     let dist = select(max(layer_dist, 2.0 - skylight_factor), 0.0, underwater);
-    let light_color = get_light_color();
-    let blocklight_color = from_srgb(vec3<f32>(blocklight_r, blocklight_g, blocklight_b)) * blocklight_i;
+    let light_color = get_light_color() * cloud_shadow;
+    let grid_c = block_light_color(input.position);
+    let blocklight_color = mix(get_blocklight_color(), linear_to_rec2020(grid_c.rgb), clamp01(grid_c.a * 1.6)) * blocklight_i;
     let ambient = get_sky_color() * input.light.y + 1.41 * blocklight_color * 6.0 * sqr(input.light.x);
     let transmittance = exp(-extinction * dist);
     let lov = dot(light_dir(), ray);
@@ -302,7 +332,6 @@ fn shade_water(input: MaterialInput, ray: vec3<f32>, normal: vec3<f32>, refl_dir
     let brightness = (1.0 - exp(-0.33 * layer_dist)) * max(input.light.x, input.light.y);
     var color = behind * transmittance + scatter * (1.0 + 6.0 * transmittance * transmittance) * brightness;
 
-    // water texture highlight
     if water_texture == 1u {
         let r = input.albedo.r;
         let highlight = dampen(0.5 * sqr(linear_step(0.63, 1.0, r)) + 0.03 * r)
@@ -313,7 +342,6 @@ fn shade_water(input: MaterialInput, ray: vec3<f32>, normal: vec3<f32>, refl_dir
         color = mix(color, vanilla * (get_sky_color() * sqr(input.light.y) + light_color * 0.2) * rcp_pi, input.albedo.a * 0.5);
     }
 
-    // reflections: hardware RT -> fast screen-space reflection (SSR) -> photon sky
     let n_rel = select(1.333, 1.0 / 1.333, underwater);
     let fresnel = fresnel_dielectric(nov, n_rel);
     let sky_refl = sky_reflection_color(refl_dir, skylight, traced && rt_hit.distance < 0.0);
@@ -325,7 +353,6 @@ fn shade_water(input: MaterialInput, ray: vec3<f32>, normal: vec3<f32>, refl_dir
     }
     color = mix(color, reflected, fresnel);
 
-    // sun glint
     let l = light_dir();
     let h = normalize(l - ray);
     let nol = dot(normal, l);
@@ -353,8 +380,10 @@ fn material(input: MaterialInput) -> Surface {
     var ao = 1.0;
     var m: Mat;
     var normal = flat_normal;
+    var puddle_amount = 0.0;
+    let light_levels = clamp(input.light, vec2<f32>(0.0), vec2<f32>(1.0));
+
     if !is_water {
-        // Separate vanilla vertex AO from untinted blocks while leaving biome-tinted blocks un-doubled
         let shade = pow(vanilla_face_shade(flat_normal), 2.2);
         let unshaded_tint = input.tint.rgb / max(shade, 1e-4);
         let tint_gamma = pow(max(unshaded_tint, vec3<f32>(0.0)), vec3<f32>(1.0 / 2.2));
@@ -362,7 +391,8 @@ fn material(input: MaterialInput) -> Surface {
         ao = select(1.0, clamp(max_of(tint_gamma), 0.15, 1.0), is_untinted);
         let tint_albedo = select(unshaded_tint, vec3<f32>(1.0), is_untinted);
         let albedo = linear_to_rec2020(clamp01v(input.albedo.rgb * tint_albedo));
-        m = get_material(input, albedo);
+        let spec_res = get_material(input, albedo);
+        m = spec_res.mat;
 
         if block_pbr_maps() {
             let nm = block_normal_map(input.uv);
@@ -372,6 +402,33 @@ fn material(input: MaterialInput) -> Surface {
                 tn.z = sqrt(max0(1.0 - dot(tn.xy, tn.xy)));
                 let bitangent = cross(flat_normal, input.tangent.xyz) * input.tangent.w;
                 normal = normalize(input.tangent.xyz * tn.x + bitangent * tn.y + flat_normal * tn.z);
+            }
+        }
+
+        // Photon rain_puddles.glsl: outdoor puddle darkening, raindrop ripples & mirror roughness on solid ground
+        if rain_puddles && in_overworld() && frame.wetness > 0.0 && input.material == 0u
+            && flat_normal.y > 0.99 && frame.precipitation != 2u && frame.temperature >= 0.15 && frame.downfall > 0.0 {
+            let wpos = input.position + frame.camera_position;
+            var p = textureSampleLevel(noisetex, noisetex_sampler, wpos.xz * 0.025, 0.0).w;
+            p = linear_step(0.45, 0.55, p) * frame.wetness;
+            p *= (1.0 - cube(light_levels.x)) * linear_step(14.0 / 15.0, 1.0, light_levels.y);
+            if p > eps {
+                puddle_amount = p;
+                let por = spec_res.porosity;
+                m.albedo *= 1.0 - 0.67 * por * p;
+                let np = p * (1.0 - por);
+                m.albedo *= 1.0 - 0.33 * np;
+                m.f0 = max(m.f0, mix(m.f0, 0.02, p));
+                m.roughness = mix(m.roughness, 0.002, p);
+                if frame.rain > 0.01 {
+                    let h = 0.1;
+                    let r0 = get_ripple_height(wpos.xz);
+                    let r1 = get_ripple_height(wpos.xz + vec2<f32>(h, 0.0));
+                    let r2 = get_ripple_height(wpos.xz + vec2<f32>(0.0, h));
+                    let slope = 0.05 * frame.rain * smoothstep(0.0, 0.1, abs(dot(flat_normal, ray)));
+                    let r_n = normalize(vec3<f32>((r1 - r0) * slope, h, (r2 - r0) * slope));
+                    normal = normalize(mix(normal, r_n, p));
+                }
             }
         }
     }
@@ -384,7 +441,7 @@ fn material(input: MaterialInput) -> Surface {
     }
 
     let want_water_rt = is_water && water_reflections && frame.eye_in != 1u;
-    let want_pbr_rt = !is_water && specular_highlights && m.roughness < 0.3 && m.sss_amount < 0.25;
+    let want_pbr_rt = !is_water && specular_highlights && (m.roughness < 0.3 || puddle_amount > 0.05) && m.sss_amount < 0.25;
     let want_rt_refl = frame.has_ray_tracing != 0u && rt_reflections && (want_water_rt || want_pbr_rt);
 
     // Single trace(...) call site in the material stage to minimize SPIR-V traversal overhead
@@ -394,25 +451,23 @@ fn material(input: MaterialInput) -> Surface {
         rt_hit = trace(input.position + flat_normal * 0.03, refl_dir, min(frame.ray_distance, 128.0));
     }
 
-    if is_water {
-        let water = shade_water(input, ray, water_n, refl_dir, rt_hit, want_rt_refl, dither, t);
-        return Surface(vec4<f32>(rec2020_to_linear(water.rgb), 1.0));
-    }
+    let cs = sample_cloud_shadow_mat(input.position);
 
-    if !input.translucent {
-        set_surface(normal, 1.0 - m.roughness, m.sss_amount);
+    if is_water {
+        let water = shade_water(input, ray, water_n, refl_dir, rt_hit, want_rt_refl, cs, dither, t);
+        return Surface(vec4<f32>(rec2020_to_linear(water.rgb), 1.0));
     }
 
     let l = light_dir();
     let nol = dot(normal, l);
     let nov = clamp01(dot(normal, -ray));
     let lov = dot(l, ray);
-    let light_levels = clamp(input.light, vec2<f32>(0.0), vec2<f32>(1.0));
 
     var sh: ShadowResult;
     sh.light = vec3<f32>(1.0);
     sh.sss_depth = 0.0;
     sh.fade = 1.0;
+    sh.under_water = 0.0;
     let flat_nol = dot(flat_normal, l);
     if in_overworld() {
         sh = get_shadows(input.position, flat_normal, select(flat_nol, max(flat_nol, 0.01), m.sss_amount > eps), m.sss_amount, light_levels.y, dither);
@@ -425,13 +480,17 @@ fn material(input: MaterialInput) -> Surface {
         }
     }
 
-    var color = get_diffuse_lighting(m, input.position, normal, flat_normal, light_levels, ao, sh, nol, lov, t, input.colored_light);
+    let lres = get_diffuse_lighting(m, input.position, normal, flat_normal, light_levels, ao, sh, cs, nol, lov, t, input.colored_light);
+    var color = lres.total;
+    var sun_contrib = lres.direct_sun;
 
     if specular_highlights && m.roughness < 0.99 {
         if in_overworld() {
             let h = normalize(l - ray);
-            let shadow_mix = mix(sh.light, vec3<f32>(sqr(light_levels.y)), sh.fade);
-            color += specular_highlight(m.roughness, m.f0, nol, nov, max0(dot(normal, h)), max0(dot(l, h)), get_light_color() * shadow_mix);
+            let shadow_mix = mix(sh.light * cs, vec3<f32>(sqr(light_levels.y) * cs), sh.fade);
+            let spec_sun = specular_highlight(m.roughness, m.f0, nol, nov, max0(dot(normal, h)), max0(dot(l, h)), get_light_color() * shadow_mix);
+            color += spec_sun;
+            sun_contrib += spec_sun;
         }
         let sky_refl = sky_reflection_color(refl_dir, light_levels.y, want_rt_refl && rt_hit.distance < 0.0);
         var env_refl = sky_refl;
@@ -441,6 +500,19 @@ fn material(input: MaterialInput) -> Surface {
         }
         let metal_tint = mix(vec3<f32>(1.0), m.albedo, select(0.0, 0.85, m.f0 >= 0.89));
         color += env_refl * metal_tint * fresnel_schlick(nov, m.f0) * sqr(1.0 - m.roughness);
+    }
+
+    if !input.translucent {
+        // Pack sun luminance ratio (0..255 integer part) + Land SSR weight (0..0.98 fractional part) into set_surface.data
+        let tot_lum = max(dot(color, luminance_weights), 1e-5);
+        let sun_ratio = clamp01(dot(sun_contrib, luminance_weights) / tot_lum);
+        let sun_q = floor(sun_ratio * 255.0 + 0.5);
+        var ssr_w = 0.0;
+        if !want_rt_refl && specular_highlights && (m.roughness < 0.35 || puddle_amount > 0.02) && m.sss_amount < 0.25 {
+            let smooth_w = select(0.0, sqr(1.0 - m.roughness) * 0.65, m.roughness < 0.35);
+            ssr_w = clamp(max(puddle_amount, smooth_w), 0.0, 0.98);
+        }
+        set_surface(normal, 1.0 - m.roughness, sun_q + ssr_w * 0.98);
     }
 
     color = purkinje_shift_apply(color, light_levels);

@@ -156,8 +156,15 @@ const atmosphere_thickness: f32 = 111e3;
 const min_mu_s: f32 = -0.35;
 const air_scale_heights = vec2<f32>(8.4e3, 1.25e3);
 
+const sun_angular_radius_deg: f32 = 2.0;
+const stars_coverage: f32 = 0.5;
+const atmosphere_saturation_boost: f32 = 1.0;
+const shadow_penumbra_scale: f32 = 1.0;
+const clouds_cumulus_altitude: f32 = 1200.0;
+const clouds_wind_speed: f32 = 25.0;
+
 fn moon_angular_radius() -> f32 { return 3.0 * degree; }
-fn sun_radius() -> f32 { return sun_angular_radius * degree; }
+fn sun_radius() -> f32 { return sun_angular_radius_deg * degree; }
 
 fn intersect_sphere_mu(mu: f32, r: f32, sphere_radius: f32) -> vec2<f32> {
     let disc = r * r * (mu * mu - 1.0) + sphere_radius * sphere_radius;
@@ -361,7 +368,54 @@ fn get_sun_tint() -> vec3<f32> {
 }
 fn get_moon_exposure() -> f32 {
     let time_boost = 1.0 + 0.33 / clamp01(1.25 * max(-frame.sun_direction.y, 0.1));
-    return 0.66 * moon_i * time_boost;
+    let phase = frame.moon_phase & 7u;
+    var phase_brightness = 1.0;
+    if phase == 1u || phase == 6u {
+        phase_brightness = 0.875;
+    } else if phase == 2u || phase == 5u {
+        phase_brightness = 0.75;
+    } else if phase == 3u {
+        phase_brightness = 0.625;
+    } else if phase == 4u {
+        phase_brightness = 0.5;
+    }
+    return 0.66 * moon_i * phase_brightness * time_boost;
+}
+fn get_blocklight_color() -> vec3<f32> {
+    let warm = from_srgb(vec3<f32>(1.0, 0.75, 0.63));
+    return mix(vec3<f32>(0.92), warm, blocklight_warmth);
+}
+
+// Orthonormal light-aligned distortion mapping for cloud_shadow_tex (Photon's cloud_shadows.glsl)
+const cloud_shadow_extent: f32 = 256.0;
+struct LightBasis {
+    right: vec3<f32>,
+    fwd: vec3<f32>,
+}
+fn cloud_shadow_basis(ld: vec3<f32>) -> LightBasis {
+    let up_ref = select(vec3<f32>(0.0, 0.0, 1.0), vec3<f32>(1.0, 0.0, 0.0), abs(ld.z) > 0.95);
+    let right = normalize(cross(up_ref, ld));
+    let fwd = cross(ld, right);
+    return LightBasis(right, fwd);
+}
+fn project_cloud_shadow_uv(scene_pos: vec3<f32>) -> vec2<f32> {
+    let basis = cloud_shadow_basis(light_dir());
+    let lp = vec2<f32>(dot(scene_pos, basis.right), dot(scene_pos, basis.fwd)) / cloud_shadow_extent;
+    return (lp / (1.0 + length(lp))) * 0.5 + 0.5;
+}
+fn unproject_cloud_shadow_pos(uv: vec2<f32>) -> vec3<f32> {
+    let p0 = uv * 2.0 - 1.0;
+    let raw_len = length(p0);
+    let len = min(raw_len, 0.992);
+    let dir0 = select(vec2<f32>(0.0), p0 / max(raw_len, 1e-6), raw_len >= 1e-6);
+    let lp = (dir0 * len / (1.0 - len)) * cloud_shadow_extent;
+    let basis = cloud_shadow_basis(light_dir());
+    return basis.right * lp.x + basis.fwd * lp.y;
+}
+fn get_cloud_shadow_fade(scene_pos: vec3<f32>) -> f32 {
+    let r = planet_radius + (scene_pos.y + frame.camera_position.y - 63.0) * 10.0;
+    let alt_frac = linear_step(planet_radius + clouds_cumulus_altitude, planet_radius + 2.0 * clouds_cumulus_altitude, r);
+    return smoothstep(0.05, 0.15, light_dir().y) * clamp01(1.0 - alt_frac);
 }
 fn get_moon_tint() -> vec3<f32> { return from_srgb(vec3<f32>(0.75, 0.83, 1.0)); }
 fn sun_color() -> vec3<f32> { return get_sun_exposure() * get_sun_tint(); }

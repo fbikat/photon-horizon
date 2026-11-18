@@ -1,4 +1,4 @@
-// Half-resolution volumetric light visibility along camera rays (Overworld air & underwater)
+// Half-resolution volumetric light visibility along camera rays (Overworld air & underwater), with cloud shadows
 
 fn post(input: PostInput) -> vec4<f32> {
     if !vl || !in_overworld() || frame.has_shadow == 0u {
@@ -17,15 +17,24 @@ fn post(input: PostInput) -> vec4<f32> {
     let dither = interleaved_gradient_noise(input.pixel + f32(frame.frame_index % 64u) * 5.588238);
     let steps = 12;
     let step_length = max_dist / f32(steps);
+    let use_cs = cloud_shadows && clouds_cumulus && light_dir().y > 0.0;
     var lit = 0.0;
     for (var i = 0; i < steps; i++) {
         let p = ray_dir * step_length * (f32(i) + dither);
         let s = shadow_position(p);
-        if any(s.xy < vec2<f32>(0.0)) || any(s.xy > vec2<f32>(1.0)) {
-            lit += 1.0;
-            continue;
+        var step_lit = 1.0;
+        if all(s.xy >= vec2<f32>(0.0)) && all(s.xy <= vec2<f32>(1.0)) {
+            step_lit = textureSampleCompareLevel(shadow_map, shadow_sampler, s.xy, s.z);
         }
-        lit += textureSampleCompareLevel(shadow_map, shadow_sampler, s.xy, s.z);
+        if use_cs && step_lit > 0.01 {
+            let cs_uv = project_cloud_shadow_uv(p);
+            if all(cs_uv >= vec2<f32>(0.0)) && all(cs_uv <= vec2<f32>(1.0)) {
+                let cs = textureSampleLevel(cloud_shadow_tex, linear_sampler, cs_uv, 0.0).r;
+                let fade = get_cloud_shadow_fade(p);
+                step_lit *= cs * fade + (1.0 - fade);
+            }
+        }
+        lit += step_lit;
     }
     let visible = lit / f32(steps);
     // Past the shadow map the light is unshadowed

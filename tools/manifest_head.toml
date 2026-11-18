@@ -3,7 +3,7 @@ id = "photon"
 name = "Photon"
 version = "2.0.0"
 api = "0.2"
-description = "Photon Shaders v1.4 by SixthSurge, ported to Horizon's shader API: Photon's atmosphere, volumetric clouds, soft coloured shadows, water, fog, bloom and colour grading."
+description = "Photon Shaders by SixthSurge, ported to Horizon's shader API: atmosphere, moon phases, End black hole, multi-layer volumetric clouds, cloud shadows, aurora, rainbows, SSRT & RT shadows, colored block lighting, puddles, caustics, 5-level bloom, optional DoF & TAA."
 authors = ["SixthSurge (Photon)", "fbikat (Horizon port)"]
 license = "LicenseRef-Photon-Shaders"
 shared = ["options.wgsl", "common.wgsl"]
@@ -16,6 +16,7 @@ file = "sky.wgsl"
 files = ["dim_sky.wgsl"]
 name = "Photon sky"
 sun = false
+moon = false
 stars = false
 clouds = false
 
@@ -23,11 +24,13 @@ clouds = false
 file = "material.wgsl"
 files = ["lighting.wgsl", "dim_sky.wgsl"]
 name = "Photon lighting"
+reads = ["cloud_shadow_tex"]
 
 [entity]
 file = "entity.wgsl"
 files = ["lighting.wgsl"]
 name = "Photon entity lighting"
+reads = ["cloud_shadow_tex"]
 
 [vertex]
 file = "vertex.wgsl"
@@ -50,34 +53,95 @@ format = "r32float"
 size = [1, 1]
 keep = "view"
 
-[[post]]
-file = "post/clouds.wgsl"
-name = "Clouds"
-output = "clouds_tex"
+[[resource]]
+name = "cloud_shadow_tex"
+format = "rgba16float"
+size = [256, 256]
+keep = "view"
+
+[[resource]]
+name = "clouds_tex"
+format = "rgba16float"
 scale = 0.5
+keep = "view"
+
+[[resource]]
+name = "taa_hist"
+format = "rgba16float"
+scale = 1.0
+keep = "view"
+
+[[resource]]
+name = "bloom_3"
+format = "rgba16float"
+size = [480, 270]
+keep = "view"
+
+[[resource]]
+name = "bloom_4"
+format = "rgba16float"
+size = [240, 135]
+keep = "view"
+
+[[resource]]
+name = "bloom_5"
+format = "rgba16float"
+size = [120, 68]
+keep = "view"
+
+[[resource]]
+name = "bloom_up"
+format = "rgba16float"
+size = [480, 270]
+keep = "view"
+
+[[before_world]]
+file = "before/cloud_shadows.wgsl"
+files = ["post/clouds_density.wgsl"]
+name = "Cloud shadows"
+dispatch = [256, 256, 1]
+workgroup = [8, 8, 1]
+writes = ["cloud_shadow_tex"]
 
 [[post]]
-file = "post/clouds_history.wgsl"
-name = "Clouds history"
-output = "clouds_hist"
-scale = 0.5
+file = "post/clouds.wgsl"
+files = ["post/clouds_density.wgsl"]
+name = "Clouds"
+output = "clouds_tex"
+reads = ["clouds_tex_previous", "cloud_shadow_tex"]
 
 [[post]]
 file = "post/vl.wgsl"
 name = "Volumetric light"
 output = "vl_tex"
 scale = 0.5
+reads = ["cloud_shadow_tex"]
 
 [[post]]
 file = "post/composite.wgsl"
 files = ["dim_sky.wgsl"]
-name = "Clouds, fog and light shafts"
+name = "Clouds, fog, SSRT and light shafts"
+reads = ["clouds_tex"]
+
+[[post]]
+file = "post/dof.wgsl"
+name = "Depth of field"
+
+[[post]]
+compute = true
+file = "post/taa.wgsl"
+name = "Temporal AA"
+dispatch = "pixels"
+workgroup = [8, 8, 1]
+reads = ["taa_hist_previous"]
+writes = ["taa_hist"]
 
 [[post]]
 file = "post/bloom_down.wgsl"
 name = "Bloom downsample 1"
 output = "bloom_a"
 scale = 0.5
+reads = ["taa_hist"]
 
 [[post]]
 file = "post/bloom_down2.wgsl"
@@ -86,15 +150,50 @@ output = "bloom_b"
 scale = 0.25
 
 [[post]]
+compute = true
+file = "post/bloom_mip3.wgsl"
+name = "Bloom downsample 3"
+dispatch = [480, 270, 1]
+workgroup = [8, 8, 1]
+writes = ["bloom_3"]
+
+[[post]]
+compute = true
+file = "post/bloom_mip4.wgsl"
+name = "Bloom downsample 4"
+dispatch = [240, 135, 1]
+workgroup = [8, 8, 1]
+reads = ["bloom_3"]
+writes = ["bloom_4"]
+
+[[post]]
+compute = true
+file = "post/bloom_mip5.wgsl"
+name = "Bloom downsample 5"
+dispatch = [120, 68, 1]
+workgroup = [8, 8, 1]
+reads = ["bloom_4"]
+writes = ["bloom_5"]
+
+[[post]]
+compute = true
+file = "post/bloom_up.wgsl"
+name = "Bloom upsample"
+dispatch = [480, 270, 1]
+workgroup = [8, 8, 1]
+reads = ["bloom_3", "bloom_4", "bloom_5"]
+writes = ["bloom_up"]
+
+[[post]]
 file = "post/exposure.wgsl"
 name = "Auto exposure"
 output = "exposure_tex"
-reads = ["exposure_tex_previous"]
+reads = ["exposure_tex_previous", "taa_hist"]
 
 [[post]]
 file = "post/grade.wgsl"
 name = "Colour grading"
-reads = ["exposure_tex"]
+reads = ["exposure_tex", "taa_hist", "bloom_up"]
 
 [[post]]
 file = "post/motion_blur.wgsl"
@@ -158,3 +257,180 @@ id = "galaxy_tex"
 file = "textures/galaxy.png"
 filter = "linear"
 wrap = "repeat"
+
+# Photon LPV colored block lights (linear BT.709, first pattern wins)
+[[lights]]
+color = [0.42, 1.35, 0.85]
+blocks = ["copper_torch", "copper_wall_torch", "copper_lantern", "*copper_lantern"]
+
+[[lights]]
+color = [1.05, 0.48, 0.20]
+blocks = ["*copper_bulb"]
+
+[[lights]]
+color = [0.22, 0.62, 1.35]
+blocks = ["soul_torch", "soul_wall_torch", "soul_lantern", "soul_campfire", "soul_fire"]
+
+[[lights]]
+color = [0.30, 0.78, 1.50]
+blocks = ["beacon", "conduit"]
+
+[[lights]]
+color = [0.95, 1.05, 1.15]
+blocks = ["sea_lantern"]
+
+[[lights]]
+color = [1.05, 1.00, 1.12]
+blocks = ["end_rod"]
+
+[[lights]]
+color = [0.75, 0.95, 0.90]
+blocks = ["glow_lichen"]
+
+[[lights]]
+color = [1.25, 0.10, 0.04]
+blocks = ["redstone_torch", "redstone_wall_torch", "redstone_ore", "deepslate_redstone_ore", "redstone_block", "redstone_wire", "powered_rail", "activator_rail", "detector_rail", "repeater", "comparator", "observer"]
+
+[[lights]]
+color = [1.35, 0.32, 0.05]
+blocks = ["lava", "flowing_lava", "lava_cauldron", "magma_block"]
+
+[[lights]]
+color = [1.20, 0.42, 0.08]
+blocks = ["fire", "shroomlight", "jack_o_lantern"]
+
+[[lights]]
+color = [1.15, 0.62, 0.22]
+blocks = ["ochre_froglight"]
+
+[[lights]]
+color = [0.78, 1.15, 0.26]
+blocks = ["verdant_froglight"]
+
+[[lights]]
+color = [0.85, 0.38, 1.25]
+blocks = ["pearlescent_froglight"]
+
+[[lights]]
+color = [1.10, 0.52, 0.24]
+blocks = ["glowstone", "lantern", "redstone_lamp", "creaking_heart", "respawn_anchor"]
+
+[[lights]]
+color = [1.10, 0.44, 0.14]
+blocks = ["open_eyeblossom", "potted_open_eyeblossom"]
+
+[[lights]]
+color = [1.02, 0.48, 0.22]
+blocks = ["torch", "wall_torch", "campfire", "furnace", "smoker", "blast_furnace", "brewing_stand", "torchflower", "potted_torchflower", "cave_vines", "cave_vines_plant", "candle", "*_candle", "trial_spawner", "vault"]
+
+[[lights]]
+color = [0.45, 0.95, 0.78]
+blocks = ["sculk_catalyst", "sculk_sensor", "calibrated_sculk_sensor", "sculk_shrieker", "end_portal_frame"]
+
+[[lights]]
+color = [0.60, 0.95, 0.35]
+blocks = ["sea_pickle"]
+
+[[lights]]
+color = [0.75, 0.28, 1.25]
+blocks = ["nether_portal", "crying_obsidian", "enchanting_table", "amethyst_cluster", "large_amethyst_bud", "medium_amethyst_bud", "small_amethyst_bud", "spawner", "dragon_head", "dragon_wall_head"]
+
+[[lights]]
+color = [0.35, 0.85, 0.65]
+blocks = ["end_portal", "end_gateway"]
+
+# Emissive and magic particles
+[[particle_lights]]
+particles = ["flame"]
+color = [1.0, 0.50, 0.18]
+reach = 4.5
+
+[[particle_lights]]
+particles = ["small_flame"]
+color = [1.0, 0.52, 0.20]
+reach = 3.0
+
+[[particle_lights]]
+particles = ["soul_fire_flame", "soul"]
+color = [0.30, 0.72, 1.0]
+reach = 4.5
+
+[[particle_lights]]
+particles = ["copper_fire_flame"]
+color = [0.35, 1.0, 0.68]
+reach = 4.5
+
+[[particle_lights]]
+particles = ["sculk_soul"]
+color = [0.35, 0.92, 0.78]
+reach = 3.5
+
+[[particle_lights]]
+particles = ["lava", "landing_lava", "falling_lava", "dripping_lava"]
+color = [1.0, 0.34, 0.06]
+reach = 4.0
+
+[[particle_lights]]
+particles = ["firefly"]
+color = [0.78, 1.0, 0.35]
+reach = 3.0
+
+[[particle_lights]]
+particles = ["glow"]
+color = [0.40, 0.95, 0.82]
+reach = 3.5
+
+[[particle_lights]]
+particles = ["end_rod"]
+color = [0.95, 0.92, 1.0]
+reach = 3.5
+
+[[particle_lights]]
+particles = ["portal", "reverse_portal"]
+color = [0.65, 0.20, 1.0]
+reach = 3.0
+
+[[particle_lights]]
+particles = ["enchant"]
+color = [0.55, 0.32, 1.0]
+reach = 2.5
+
+[[particle_lights]]
+particles = ["dragon_breath"]
+color = [0.82, 0.22, 1.0]
+reach = 4.0
+
+[[particle_lights]]
+particles = ["spore_blossom_air", "falling_spore_blossom"]
+color = [0.65, 0.95, 0.45]
+reach = 2.0
+
+[[particle_lights]]
+particles = ["electric_spark"]
+color = [0.45, 0.88, 1.0]
+reach = 3.5
+
+[[particle_lights]]
+particles = ["flash", "firework"]
+color = [1.0, 0.90, 0.75]
+reach = 8.0
+
+[[particle_lights]]
+particles = ["sculk_charge", "sculk_charge_pop", "sonic_boom"]
+color = [0.25, 0.85, 0.95]
+reach = 5.0
+
+[[particle_lights]]
+particles = ["trial_spawner_detection", "ominous_spawning", "vault_connection"]
+color = [0.35, 0.85, 0.90]
+reach = 4.0
+
+[[particle_lights]]
+particles = ["trial_spawner_detection_ominous"]
+color = [0.25, 0.75, 1.0]
+reach = 4.5
+
+[[particle_lights]]
+particles = ["crimson_spore", "warped_spore"]
+color = [0.70, 0.50, 0.65]
+reach = 2.0

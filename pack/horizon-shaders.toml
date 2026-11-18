@@ -21,7 +21,7 @@ clouds = false
 
 [material]
 file = "material.wgsl"
-files = ["lighting.wgsl"]
+files = ["lighting.wgsl", "dim_sky.wgsl"]
 name = "Photon lighting"
 
 [entity]
@@ -41,6 +41,8 @@ distance = 128.0
 option = "shadows"
 resolution_option = "shadow_resolution"
 distance_option = "shadow_distance"
+
+[ray_tracing]
 
 [reflection]
 option = "water_reflections"
@@ -164,13 +166,13 @@ items = ["page:lighting", "page:shadows", "page:sky", "page:clouds", "page:fog",
 id = "lighting"
 name = "Lighting"
 description = "Sun, sky, block light and foliage."
-items = ["sun_i", "moon_i", "skylight_i", "blocklight_i", "blocklight_r", "blocklight_g", "blocklight_b", "emission_strength", "shading_strength", "sss_intensity", "bounced_light_i", "cave_lighting_i", "specular_highlights", "ssao", "ao_intensity", "waving_plants", "waving_leaves"]
+items = ["sun_i", "moon_i", "skylight_i", "blocklight_i", "blocklight_r", "blocklight_g", "blocklight_b", "emission_strength", "shading_strength", "sss_intensity", "bounced_light_i", "cave_lighting_i", "specular_highlights", "rt_reflections", "ssao", "ao_intensity", "waving_plants", "waving_leaves"]
 
 [[pages]]
 id = "shadows"
 name = "Shadows"
 description = "The sun and moon shadow map."
-items = ["shadows", "shadow_resolution", "shadow_distance", "shadow_vps", "colored_shadows", "shadow_penumbra_scale", "shadow_pcf_steps"]
+items = ["shadows", "shadow_resolution", "shadow_distance", "shadow_vps", "colored_shadows", "shadow_penumbra_scale", "shadow_pcf_steps", "rt_contact_shadows"]
 
 [[pages]]
 id = "sky"
@@ -322,6 +324,13 @@ default = true
 description = "Sun highlights on smooth surfaces (LabPBR)."
 
 [[options]]
+id = "rt_reflections"
+name = "Ray-Traced Reflections"
+type = "bool"
+default = true
+description = "Hardware ray-traced water and smooth specular reflections."
+
+[[options]]
 id = "ssao"
 name = "Screen-Space AO"
 type = "bool"
@@ -401,6 +410,13 @@ type = "int"
 default = 12
 min = 4
 max = 32
+
+[[options]]
+id = "rt_contact_shadows"
+name = "Ray-Traced Contact Shadows"
+type = "bool"
+default = true
+description = "Hardware ray-traced near-field contact shadows."
 
 [[options]]
 id = "sun_angular_radius"

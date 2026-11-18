@@ -16,6 +16,7 @@ override cave_lighting_i: f32 = 1.0;
 override waving_plants: bool = true;
 override waving_leaves: bool = true;
 override specular_highlights: bool = true;
+override rt_reflections: bool = true;
 override ssao: bool = true;
 override ao_intensity: f32 = 1.0;
 
@@ -25,6 +26,7 @@ override shadow_vps: bool = true;
 override colored_shadows: bool = true;
 override shadow_penumbra_scale: f32 = 1.0;
 override shadow_pcf_steps: i32 = 12;
+override rt_contact_shadows: bool = true;
 
 // sky
 override sun_angular_radius: f32 = 2.0;

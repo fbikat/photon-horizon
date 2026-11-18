@@ -18,6 +18,7 @@ pages = [
         ('bounced_light_i', 'Bounced Light', F, 1.0, 0.0, 2.0, 0.05, ''),
         ('cave_lighting_i', 'Cave Lighting', F, 1.0, 0.0, 2.0, 0.05, 'Minimum light underground.'),
         ('specular_highlights', 'Specular Highlights', B, True, 'Sun highlights on smooth surfaces (LabPBR).'),
+        ('rt_reflections', 'Ray-Traced Reflections', B, True, 'Hardware ray-traced water and smooth specular reflections.'),
         ('ssao', 'Screen-Space AO', B, True, 'Contact ambient occlusion in crevices and corners.'),
         ('ao_intensity', 'AO Intensity', F, 1.0, 0.0, 2.0, 0.05, ''),
         ('waving_plants', 'Waving Plants', B, True, ''),
@@ -31,6 +32,7 @@ pages = [
         ('colored_shadows', 'Colored Shadows', B, True, 'Light tinted by stained glass and water.'),
         ('shadow_penumbra_scale', 'Penumbra Scale', F, 1.0, 0.0, 2.0, 0.1, ''),
         ('shadow_pcf_steps', 'Shadow Filter Samples', I, 12, 4, 32, 1, ''),
+        ('rt_contact_shadows', 'Ray-Traced Contact Shadows', B, True, 'Hardware ray-traced near-field contact shadows.'),
     ]),
     ('sky', 'Sky', 'Atmosphere, sun and stars.', [
         ('sun_angular_radius', 'Sun Size', F, 2.0, 0.5, 4.0, 0.1, 'Angular radius in degrees.'),

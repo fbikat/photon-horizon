@@ -21,7 +21,7 @@ clouds = false
 
 [material]
 file = "material.wgsl"
-files = ["lighting.wgsl"]
+files = ["lighting.wgsl", "dim_sky.wgsl"]
 name = "Photon lighting"
 
 [entity]
@@ -41,6 +41,8 @@ distance = 128.0
 option = "shadows"
 resolution_option = "shadow_resolution"
 distance_option = "shadow_distance"
+
+[ray_tracing]
 
 [reflection]
 option = "water_reflections"

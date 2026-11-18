@@ -49,8 +49,16 @@ fn celestial(ray_dir: vec3<f32>) -> vec3<f32> {
 
 fn sky(input: SkyInput) -> vec4<f32> {
     let ray_dir = normalize(input.direction);
+    if in_end() {
+        var end_col = end_sky_color(ray_dir);
+        let cel_end = vec3<f32>(ray_dir.x, ray_dir.z, ray_dir.y);
+        end_col += draw_stars(cel_end, 0.0) * vec3<f32>(0.78, 0.68, 1.0) * 0.65;
+        return vec4<f32>(rec2020_to_linear(end_col), 1.0);
+    }
+    if in_nether() {
+        return vec4<f32>(rec2020_to_linear(nether_sky_color(ray_dir)), 1.0);
+    }
     if !in_overworld() {
-        // the nether and end keep their vanilla look in linear BT.709
         return input.color;
     }
     let atmosphere = atmosphere_scattering_both(ray_dir, sun_color(), moon_color());

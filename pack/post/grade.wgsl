@@ -35,8 +35,9 @@ fn post(input: PostInput) -> vec4<f32> {
         let b = mix(wide, near, 0.3);
         color = mix(color, b, 0.12 * bloom_intensity);
     }
-    color *= exp2(-manual_exposure);
-    if vignette {
+    let auto_ev = select(0.0, textureLoad(exposure_tex, vec2<i32>(0, 0), 0).r, auto_exposure);
+    color *= exp2(-(manual_exposure + auto_ev));
+    if vignette_intensity > 0.0 {
         color *= vignette_amount(input.uv);
     }
     color = rec2020_to_linear(grade_input(linear_to_rec2020(color)));

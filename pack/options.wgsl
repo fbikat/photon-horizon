@@ -16,6 +16,8 @@ override cave_lighting_i: f32 = 1.0;
 override waving_plants: bool = true;
 override waving_leaves: bool = true;
 override specular_highlights: bool = true;
+override ssao: bool = true;
+override ao_intensity: f32 = 1.0;
 
 // shadows (shadows turns horizon's shadow pass off; resolution and distance size it)
 override shadows: bool = true;
@@ -49,7 +51,6 @@ override air_fog_density: f32 = 1.0;
 override border_fog: bool = true;
 
 // water
-override water_waves: bool = true;
 override water_wave_strength: f32 = 1.0;
 override water_absorption: f32 = 1.0;
 override water_texture: u32 = 1u;
@@ -58,6 +59,7 @@ override water_reflections: bool = true;
 // post-processing
 override bloom: bool = true;
 override bloom_intensity: f32 = 1.0;
+override auto_exposure: bool = true;
 override manual_exposure: f32 = 0.0;
 override tonemap_operator: u32 = 0u;
 override grade_brightness: f32 = 1.0;
@@ -67,7 +69,6 @@ override grade_orange_sat_boost: f32 = 0.0;
 override grade_teal_sat_boost: f32 = 0.1;
 override grade_green_sat_boost: f32 = 0.0;
 override purkinje_shift: bool = true;
-override vignette: bool = true;
 override vignette_intensity: f32 = 1.0;
 override motion_blur: bool = false;
 override fxaa: bool = true;

@@ -143,6 +143,8 @@ fn biome_cave() -> f32 {
 fn world_age() -> f32 { return frame.time + frame.game_time * 1200.0; }
 fn biome_may_snow() -> f32 { return select(0.0, 1.0, frame.precipitation == 2u || frame.temperature < 0.15); }
 fn in_overworld() -> bool { return frame.dimension == 0; }
+fn in_nether() -> bool { return frame.dimension == -1; }
+fn in_end() -> bool { return frame.dimension == 1; }
 
 // atmosphere (photon's include/sky/atmosphere.glsl)
 // photon's vec3(1.051, 0.985, 0.940) * rec709_to_rec2020

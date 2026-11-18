@@ -8,8 +8,12 @@ authors = ["SixthSurge (Photon)", "fbikat (Horizon port)"]
 license = "LicenseRef-Photon-Shaders"
 shared = ["options.wgsl", "common.wgsl"]
 
+[frame]
+fog = "pack"
+
 [sky]
 file = "sky.wgsl"
+files = ["dim_sky.wgsl"]
 name = "Photon sky"
 sun = false
 stars = false
@@ -17,8 +21,13 @@ clouds = false
 
 [material]
 file = "material.wgsl"
+files = ["lighting.wgsl"]
 name = "Photon lighting"
-fog = false
+
+[entity]
+file = "entity.wgsl"
+files = ["lighting.wgsl"]
+name = "Photon entity lighting"
 
 [vertex]
 file = "vertex.wgsl"
@@ -36,6 +45,12 @@ distance_option = "shadow_distance"
 [reflection]
 option = "water_reflections"
 
+[[resource]]
+name = "exposure_tex"
+format = "r32float"
+size = [1, 1]
+keep = "view"
+
 [[post]]
 file = "post/clouds.wgsl"
 name = "Clouds"
@@ -50,6 +65,7 @@ scale = 0.5
 
 [[post]]
 file = "post/composite.wgsl"
+files = ["dim_sky.wgsl"]
 name = "Clouds, fog and light shafts"
 
 [[post]]
@@ -65,8 +81,15 @@ output = "bloom_b"
 scale = 0.25
 
 [[post]]
+file = "post/exposure.wgsl"
+name = "Auto exposure"
+output = "exposure_tex"
+reads = ["exposure_tex_previous"]
+
+[[post]]
 file = "post/grade.wgsl"
 name = "Colour grading"
+reads = ["exposure_tex"]
 
 [[post]]
 file = "post/motion_blur.wgsl"
@@ -141,7 +164,7 @@ items = ["page:lighting", "page:shadows", "page:sky", "page:clouds", "page:fog",
 id = "lighting"
 name = "Lighting"
 description = "Sun, sky, block light and foliage."
-items = ["sun_i", "moon_i", "skylight_i", "blocklight_i", "blocklight_r", "blocklight_g", "blocklight_b", "emission_strength", "shading_strength", "sss_intensity", "bounced_light_i", "cave_lighting_i", "specular_highlights", "waving_plants", "waving_leaves"]
+items = ["sun_i", "moon_i", "skylight_i", "blocklight_i", "blocklight_r", "blocklight_g", "blocklight_b", "emission_strength", "shading_strength", "sss_intensity", "bounced_light_i", "cave_lighting_i", "specular_highlights", "ssao", "ao_intensity", "waving_plants", "waving_leaves"]
 
 [[pages]]
 id = "shadows"
@@ -171,13 +194,13 @@ items = ["vl", "vl_intensity", "air_fog_density", "border_fog"]
 id = "water"
 name = "Water"
 description = "Waves, colour and reflections."
-items = ["water_waves", "water_wave_strength", "water_absorption", "water_texture", "water_reflections"]
+items = ["water_wave_strength", "water_absorption", "water_texture", "water_reflections"]
 
 [[pages]]
 id = "post"
 name = "Post-Processing"
 description = "Bloom, colour grading and anti-aliasing."
-items = ["bloom", "bloom_intensity", "manual_exposure", "tonemap_operator", "grade_brightness", "grade_contrast", "grade_saturation", "grade_orange_sat_boost", "grade_teal_sat_boost", "grade_green_sat_boost", "purkinje_shift", "vignette", "vignette_intensity", "motion_blur", "fxaa", "cas_intensity"]
+items = ["bloom", "bloom_intensity", "auto_exposure", "manual_exposure", "tonemap_operator", "grade_brightness", "grade_contrast", "grade_saturation", "grade_orange_sat_boost", "grade_teal_sat_boost", "grade_green_sat_boost", "purkinje_shift", "vignette_intensity", "motion_blur", "fxaa", "cas_intensity"]
 
 [[options]]
 id = "sun_i"
@@ -297,6 +320,22 @@ name = "Specular Highlights"
 type = "bool"
 default = true
 description = "Sun highlights on smooth surfaces (LabPBR)."
+
+[[options]]
+id = "ssao"
+name = "Screen-Space AO"
+type = "bool"
+default = true
+description = "Contact ambient occlusion in crevices and corners."
+
+[[options]]
+id = "ao_intensity"
+name = "AO Intensity"
+type = "float"
+default = 1.0
+min = 0.0
+max = 2.0
+step = 0.05
 
 [[options]]
 id = "waving_plants"
@@ -514,12 +553,6 @@ default = true
 description = "Fades terrain into the sky at the render distance."
 
 [[options]]
-id = "water_waves"
-name = "Water Waves"
-type = "bool"
-default = true
-
-[[options]]
 id = "water_wave_strength"
 name = "Wave Strength"
 type = "float"
@@ -527,6 +560,7 @@ default = 1.0
 min = 0.0
 max = 2.0
 step = 0.05
+description = "0: flat water without waves."
 
 [[options]]
 id = "water_absorption"
@@ -566,6 +600,13 @@ default = 1.0
 min = 0.0
 max = 2.0
 step = 0.05
+
+[[options]]
+id = "auto_exposure"
+name = "Auto Exposure"
+type = "bool"
+default = true
+description = "Adapts camera brightness smoothly to scene luminance."
 
 [[options]]
 id = "manual_exposure"
@@ -646,12 +687,6 @@ default = true
 description = "Blue-shifted night vision."
 
 [[options]]
-id = "vignette"
-name = "Vignette"
-type = "bool"
-default = true
-
-[[options]]
 id = "vignette_intensity"
 name = "Vignette Intensity"
 type = "float"
@@ -659,6 +694,7 @@ default = 1.0
 min = 0.0
 max = 2.0
 step = 0.05
+description = "0: vignette off."
 
 [[options]]
 id = "motion_blur"

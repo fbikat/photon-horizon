@@ -8,8 +8,12 @@ authors = ["SixthSurge (Photon)", "fbikat (Horizon port)"]
 license = "LicenseRef-Photon-Shaders"
 shared = ["options.wgsl", "common.wgsl"]
 
+[frame]
+fog = "pack"
+
 [sky]
 file = "sky.wgsl"
+files = ["dim_sky.wgsl"]
 name = "Photon sky"
 sun = false
 stars = false
@@ -17,8 +21,13 @@ clouds = false
 
 [material]
 file = "material.wgsl"
+files = ["lighting.wgsl"]
 name = "Photon lighting"
-fog = false
+
+[entity]
+file = "entity.wgsl"
+files = ["lighting.wgsl"]
+name = "Photon entity lighting"
 
 [vertex]
 file = "vertex.wgsl"
@@ -36,6 +45,12 @@ distance_option = "shadow_distance"
 [reflection]
 option = "water_reflections"
 
+[[resource]]
+name = "exposure_tex"
+format = "r32float"
+size = [1, 1]
+keep = "view"
+
 [[post]]
 file = "post/clouds.wgsl"
 name = "Clouds"
@@ -50,6 +65,7 @@ scale = 0.5
 
 [[post]]
 file = "post/composite.wgsl"
+files = ["dim_sky.wgsl"]
 name = "Clouds, fog and light shafts"
 
 [[post]]
@@ -65,8 +81,15 @@ output = "bloom_b"
 scale = 0.25
 
 [[post]]
+file = "post/exposure.wgsl"
+name = "Auto exposure"
+output = "exposure_tex"
+reads = ["exposure_tex_previous"]
+
+[[post]]
 file = "post/grade.wgsl"
 name = "Colour grading"
+reads = ["exposure_tex"]
 
 [[post]]
 file = "post/motion_blur.wgsl"

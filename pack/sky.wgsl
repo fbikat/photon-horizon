@@ -35,9 +35,10 @@ fn draw_moon(ray_dir: vec3<f32>) -> vec4<f32> {
     let moon_shadow = dampen(max0(dot(moon_normal, l_dir)));
 
     let edge_glow = pow8(dist);
-    let base_tint = from_srgb(vec3<f32>(0.75, 0.83, 1.0));
-    let lit_col = base_tint * vec3<f32>(1.0, 0.94, 1.0);
-    let glow_col = base_tint * vec3<f32>(0.90, 1.0, 1.0);
+    // photon's draw_moon takes MOON_R/G/B as they are (the square below stands for the gamma): lit (R, G - 0.03, B)
+    // and glow (R - 0.05, G, B), without from_srgb as the moon's light colour has
+    let lit_col = vec3<f32>(0.75, 0.80, 1.0);
+    let glow_col = vec3<f32>(0.70, 0.83, 1.0);
     var c = max(
         moon_shadow * lit_col * (1.0 + 4.0 * edge_glow),
         0.5 * glow_col * (0.1 + 0.1 * edge_glow),
@@ -115,7 +116,10 @@ fn sky(input: SkyInput) -> vec4<f32> {
         galaxy_luminance = dot(g, luminance_weights);
         sky_col += max(mix(vec3<f32>(galaxy_luminance), g, 2.0), vec3<f32>(0.0));
     }
-    sky_col += draw_stars(cel, galaxy_luminance);
+    // by day the stars' threshold is 1 and none passes it: skip their 16 hashes
+    if 1.0 - 0.05 * stars_coverage * smoothstep(-0.2, 0.05, -frame.sun_direction.y) - 0.5 * cube(galaxy_luminance) < 1.0 {
+        sky_col += draw_stars(cel, galaxy_luminance);
+    }
     sky_col += draw_sun(ray_dir);
     let moon = draw_moon(ray_dir);
     sky_col = sky_col * (1.0 - moon.a) + moon.rgb;

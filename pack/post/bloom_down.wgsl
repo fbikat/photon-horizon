@@ -1,14 +1,12 @@
-// photon's c5-c10 bloom downsample (13-tap CoD:AW filter), level 1 (reads taa_hist when TAA is active)
+// photon's c5-c10 bloom downsample (13-tap CoD:AW filter), level 1. The chain also feeds the auto
+// exposure's metering, so it runs while either is on.
 
 fn bloom_tap(uv: vec2<f32>) -> vec3<f32> {
-    if taa {
-        return textureSampleLevel(taa_hist, linear_sampler, uv, 0.0).rgb;
-    }
     return textureSampleLevel(previous, linear_sampler, uv, 0.0).rgb;
 }
 
 fn post(input: PostInput) -> vec4<f32> {
-    if !bloom {
+    if !bloom_on() && !auto_exposure {
         return vec4<f32>(0.0);
     }
     let px = 1.0 / frame.resolution;
@@ -31,7 +29,8 @@ fn post(input: PostInput) -> vec4<f32> {
     o += (b + c + h + g) * 0.03125;
     o += (f + g + l + k) * 0.03125;
     o += (g + h + m + l) * 0.03125;
-    // keep fireflies (the sun, lava) from blowing up the bloom
-    o = min(o, vec3<f32>(64.0));
+    // photon clamps nothing here: the sun's thousands are what give it its halo (the 64 this used to clamp to
+    // kept 1-2% of it). Only keep within half-float range.
+    o = min(o, vec3<f32>(32768.0));
     return vec4<f32>(o, 1.0);
 }

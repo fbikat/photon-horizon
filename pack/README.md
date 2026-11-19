@@ -8,12 +8,11 @@ aurora borealis, rainbows, crepuscular rays, custom Nether & End black hole skie
 (cumulus, altocumulus, congestus, cirrus, noctilucent) with compute cloud shadows; soft colored PCSS shadows, SSRT
 distant shadows, and hardware ray-traced contact shadows & reflections; LabPBR highlights, foliage SSS, rain puddles with
 ripples & Land SSR, animated water caustics, entity lighting, `[[lights]]` & `[[particle_lights]]` multi-colored block
-lighting, SSAO, Purkinje shift, 5-level compute bloom, auto exposure, optional Depth of Field, optional camera-reprojected
-TAA, color grading, tonemapping, FXAA, and EASU & CAS sharpening.
+lighting, SSAO, Purkinje shift, 5-level compute bloom, auto exposure, optional Depth of Field, color grading, tonemapping, SMAA or FXAA, and EASU & CAS sharpening.
 
 Remaining engine-side gaps (not yet exposed by Horizon's runtime): custom pack shading for the first-person hand,
 items, and particles (`entity` covers mobs & block entities today), full voxel bounce LPV GI beyond `[[lights]]`, and
-per-object `[motion]` vectors (so moving entities can show slight ghosting if optional TAA is turned on).
+projection jitter (so Photon's TAA is not ported; SMAA or FXAA take its place).
 
 All credit for the artistic direction goes to SixthSurge and Photon's contributors. This port follows Photon's licence
 (see LICENSE): it may be shared freely, but not sold, and not uploaded to sites that pay creators (such as Modrinth or

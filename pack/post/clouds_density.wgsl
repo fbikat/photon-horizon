@@ -2,17 +2,20 @@
 
 const clouds_scale: f32 = 10.0;
 const clouds_cumulus_thickness: f32 = 1200.0;
-const clouds_altocumulus_altitude: f32 = 2400.0;
+const clouds_altocumulus_altitude: f32 = 3200.0;
 const clouds_altocumulus_thickness: f32 = 480.0;
-const clouds_congestus_altitude: f32 = 1200.0;
-const clouds_congestus_thickness: f32 = 3000.0;
+// photon: altitude 400, thickness 400 * 32 (CLOUDS_CUMULUS_CONGESTUS_THICKNESS)
+const clouds_congestus_altitude: f32 = 400.0;
+const clouds_congestus_thickness: f32 = 12800.0;
 const clouds_cirrus_altitude: f32 = 6000.0;
 const clouds_cirrus_thickness: f32 = 1500.0;
 const clouds_noctilucent_altitude: f32 = 80000.0;
+// photon's CLOUDS_ALTOCUMULUS_DENSITY
+const clouds_altocumulus_density_scale: f32 = 0.10;
 
-// 30 deg cumulus wind (25 m/s * (cos 30, sin 30)), 45 deg altocumulus wind (20 m/s), 90 deg cirrus (40 m/s)
+// 30 deg cumulus wind (25 m/s * (cos 30, sin 30)), 60 deg altocumulus wind (25 m/s), 90 deg cirrus (40 m/s)
 const clouds_wind_vel = vec2<f32>(21.650635, 12.5);
-const clouds_ac_wind_vel = vec2<f32>(14.142136, 14.142136);
+const clouds_ac_wind_vel = vec2<f32>(12.5, 21.650635);
 const clouds_cirrus_wind = vec2<f32>(0.0, 40.0);
 
 struct CloudsParams {
@@ -27,8 +30,10 @@ struct CloudsParams {
     l1_coverage: vec2<f32>,
     congestus_blend: f32,
     cirrus_amount: f32,
+    cirrocumulus_amount: f32,
     crepuscular_amount: f32,
     noctilucent_amount: f32,
+    l0_shadow: f32,
 }
 
 var<private> cp: CloudsParams;
@@ -73,6 +78,7 @@ fn clouds_parameters(w: Weather) -> CloudsParams {
     p.l1_coverage = clamp(mix(cov_ac, cov_as, p.l1_stratus_blend), vec2<f32>(0.0), vec2<f32>(1.0)) * clouds_cumulus_coverage;
 
     let l0_shadow = linear_step(0.7, 1.0, dot(p.l1_coverage, vec2<f32>(0.25, 0.75)) * (1.0 + p.l1_stratus_blend)) * dampen(day_factor());
+    p.l0_shadow = l0_shadow;
     var ext = mix(0.05, 0.1, smoothstep(0.0, 0.3, abs(frame.sun_direction.y)))
         * (1.0 - 0.33 * frame.rain) * (1.0 - 0.6 * l0_shadow) * clouds_cumulus_density;
     ext *= 1.0 - 0.4 * linear_step(0.8, 1.0, p.coverage.y - p.coverage.y * p.stratus_blend);
@@ -83,13 +89,17 @@ fn clouds_parameters(w: Weather) -> CloudsParams {
     let ct = 0.6 - 0.4 * sqr(linear_step(0.5, 0.9, w.temperature)) + 0.4 * (1.0 - linear_step(0.0, 0.2, w.temperature));
     let ch = 1.0 - 0.5 * linear_step(0.5, 0.75, w.humidity);
     p.cirrus_amount = clamp01(0.5 * ct * ch + 0.5 * frame.rain) * clouds_cirrus_coverage;
+    // photon's clouds_cirrocumulus_amount: the small high puffs, with wind, more when humid, less when hot
+    let cc_t = 1.0 - 0.3 * linear_step(0.5, 1.0, w.temperature);
+    let cc_h = 0.5 + 0.5 * linear_step(0.4, 1.0, w.humidity);
+    p.cirrocumulus_amount = 0.8 * dampen(cc_t * cc_h * pow1d5(w.wind)) * clouds_cirrus_coverage;
 
     p.crepuscular_amount = dampen(clamp01(2.0 * w.humidity))
         * linear_step(0.45, 0.7, (1.0 + 0.2 * sqr(p.stratus_blend)) * dot(p.coverage, vec2<f32>(0.66, 0.33)) + 0.09 * p.l1_coverage.y);
 
     // Noctilucent: visible subtly on some twilight evenings
     let noct_hash = hash1(floor(world_age() / 1200.0) * golden_ratio + 0.37);
-    p.noctilucent_amount = dampen(linear_step(0.35, 1.0, noct_hash)) * clouds_cirrus_coverage;
+    p.noctilucent_amount = dampen(linear_step(0.7, 1.0, noct_hash)) * clouds_cirrus_coverage;
     return p;
 }
 
@@ -161,15 +171,15 @@ fn cumulus_density(pos0: vec3<f32>, detailed: bool) -> f32 {
     var w1 = 0.5;
     if detailed {
         let wind = vec3<f32>(wind_velocity.x * world_age(), 0.0, wind_velocity.y * world_age());
-        let a = worley3d((pos + 0.2 * wind) * 0.0005);
-        let b = worley3d((pos + 0.4 * wind) * 0.0025);
+        let a = worley3d((pos + 0.2 * wind) * 0.0009);
+        let b = worley3d((pos + 0.4 * wind) * 0.005);
         w0 = a.r;
         w1 = b.g;
     }
-    let fade = 0.20 * smoothstep(0.85, 1.0, 1.0 - af) - 0.35 * smoothstep(0.05, 0.5, af) + 0.8;
-    density -= cp.detail_weights.x * sqr(clamp01(1.0 - density)) * w0 * fade;
-    density -= cp.detail_weights.y * sqr(w1) * dampen(clamp01(1.0 - density))
-        * dampen(dampen(clamp01(fade + 0.5 * sqr(af))));
+    // photon's cumulus.glsl: both worley layers squared, the second faded with the altitude
+    let fade = 0.20 * smoothstep(0.85, 1.0, 1.0 - af) - 0.35 * smoothstep(0.05, 0.5, af) + 0.6;
+    density -= cp.detail_weights.x * sqr(w0) * dampen(clamp01(1.0 - density));
+    density -= cp.detail_weights.y * sqr(w1) * dampen(clamp01(1.0 - density)) * fade;
     density = max0(density);
     density = lift(clamp01(density), mix(cp.edge_sharpening.x, cp.edge_sharpening.y, af));
     density *= 0.1 + 0.9 * smoothstep(0.2, 0.7, af);
@@ -213,7 +223,8 @@ fn altocumulus_density(pos0: vec3<f32>, detailed: bool) -> f32 {
         let pos3 = vec3<f32>(pos_xz.x, pos0.y, pos_xz.y);
         w = worley3d((pos3 + 0.2 * wind) * 0.003).g;
     }
-    density -= 0.2 * sqr(w) * dampen(clamp01(1.0 - density)) * (1.0 - 0.85 * cp.l1_stratus_blend);
+    // CLOUDS_ALTOCUMULUS_DETAIL_STRENGTH 1.5
+    density -= 0.2 * 1.5 * sqr(w) * dampen(clamp01(1.0 - density)) * (1.0 - 0.85 * cp.l1_stratus_blend);
     let sharp = mix(vec2<f32>(3.0, 14.0), vec2<f32>(2.0, 7.0), cp.l1_stratus_blend);
     density = max0(density);
     density = lift(density, mix(sharp.x, sharp.y, af));

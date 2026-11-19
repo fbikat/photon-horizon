@@ -3,7 +3,7 @@ id = "photon"
 name = "Photon"
 version = "2.0.0"
 api = "0.2"
-description = "Photon Shaders by SixthSurge, ported to Horizon's shader API: atmosphere, moon phases, End black hole, multi-layer volumetric clouds, cloud shadows, aurora, rainbows, SSRT & RT shadows, colored block lighting, puddles, caustics, 5-level bloom, optional DoF & TAA."
+description = "Photon Shaders by SixthSurge, ported to Horizon's shader API: atmosphere, moon phases, End black hole, multi-layer volumetric clouds, cloud shadows, aurora, rainbows, SSRT & RT shadows, colored block lighting, puddles, caustics, 5-level bloom, optional DoF."
 authors = ["SixthSurge (Photon)", "fbikat (Horizon port)"]
 license = "LicenseRef-Photon-Shaders"
 shared = ["options.wgsl", "common.wgsl"]
@@ -22,9 +22,9 @@ clouds = false
 
 [material]
 file = "material.wgsl"
-files = ["lighting.wgsl", "dim_sky.wgsl"]
+files = ["lighting.wgsl", "dim_sky.wgsl", "post/clouds_buffer.wgsl"]
 name = "Photon lighting"
-reads = ["cloud_shadow_tex"]
+reads = ["cloud_shadow_tex", "clouds_hist_previous", "vlao_tex_previous"]
 
 [entity]
 file = "entity.wgsl"
@@ -47,28 +47,32 @@ distance_option = "shadow_distance"
 
 [ray_tracing]
 
-[[resource]]
-name = "exposure_tex"
-format = "r32float"
-size = [1, 1]
-keep = "view"
-
+# Kept resources (8 of 8). The auto exposure lives in bloom_5's spare column (EXPOSURE_TEXEL).
 [[resource]]
 name = "cloud_shadow_tex"
 format = "rgba16float"
-size = [256, 256]
+size = [512, 512]
 keep = "view"
 
+# one cloud ray per 4x4 pixels a frame (a 16-frame checkerboard), packed (post/clouds_buffer.wgsl)
 [[resource]]
-name = "clouds_tex"
-format = "rgba16float"
+name = "clouds_raw"
+format = "rgba32uint"
+scale = 0.25
+keep = "view"
+
+# the temporally resolved clouds
+[[resource]]
+name = "clouds_hist"
+format = "rgba32uint"
 scale = 0.5
 keep = "view"
 
+# half-res light shafts and AO with their history
 [[resource]]
-name = "taa_hist"
+name = "vlao_tex"
 format = "rgba16float"
-scale = 1.0
+scale = 0.5
 keep = "view"
 
 [[resource]]
@@ -86,7 +90,7 @@ keep = "view"
 [[resource]]
 name = "bloom_5"
 format = "rgba16float"
-size = [120, 68]
+size = [121, 68]
 keep = "view"
 
 [[resource]]
@@ -97,51 +101,50 @@ keep = "view"
 
 [[before_world]]
 file = "before/cloud_shadows.wgsl"
-files = ["post/clouds_density.wgsl"]
-name = "Cloud shadows"
-dispatch = [256, 256, 1]
+files = ["post/clouds_density.wgsl", "post/clouds_draw.wgsl"]
+name = "Cloud shadows and sky map"
+dispatch = [512, 512, 1]
 workgroup = [8, 8, 1]
 writes = ["cloud_shadow_tex"]
-
-[[post]]
-file = "post/clouds.wgsl"
-files = ["post/clouds_density.wgsl"]
-name = "Clouds"
-output = "clouds_tex"
-reads = ["clouds_tex_previous", "cloud_shadow_tex"]
-
-[[post]]
-file = "post/vl.wgsl"
-name = "Volumetric light"
-output = "vl_tex"
-scale = 0.5
-reads = ["cloud_shadow_tex"]
-
-[[post]]
-file = "post/composite.wgsl"
-files = ["dim_sky.wgsl"]
-name = "Clouds, fog, SSRT and light shafts"
-reads = ["clouds_tex"]
-
-[[post]]
-file = "post/dof.wgsl"
-name = "Depth of field"
+reads = ["cloud_shadow_tex_previous"]
 
 [[post]]
 compute = true
-file = "post/taa.wgsl"
-name = "Temporal AA"
+file = "post/clouds.wgsl"
+files = ["post/clouds_density.wgsl", "post/clouds_buffer.wgsl", "post/clouds_draw.wgsl"]
+name = "Clouds (1/16 checkerboard)"
 dispatch = "pixels"
 workgroup = [8, 8, 1]
-reads = ["taa_hist_previous"]
-writes = ["taa_hist"]
+reads = ["cloud_shadow_tex"]
+writes = ["clouds_raw"]
+
+[[post]]
+compute = true
+file = "post/clouds_resolve.wgsl"
+files = ["post/clouds_density.wgsl", "post/clouds_buffer.wgsl"]
+name = "Clouds temporal resolve"
+dispatch = "pixels"
+workgroup = [8, 8, 1]
+reads = ["clouds_raw", "clouds_raw_previous", "clouds_hist_previous"]
+writes = ["clouds_hist"]
+
+[[post]]
+file = "post/vlao.wgsl"
+name = "Light shafts and AO (half res)"
+output = "vlao_tex"
+reads = ["vlao_tex_previous", "cloud_shadow_tex"]
+
+[[post]]
+file = "post/composite.wgsl"
+files = ["dim_sky.wgsl", "post/clouds_buffer.wgsl"]
+name = "Clouds, fog, SSRT and light shafts"
+reads = ["clouds_hist", "vlao_tex", "cloud_shadow_tex"]
 
 [[post]]
 file = "post/bloom_down.wgsl"
 name = "Bloom downsample 1"
 output = "bloom_a"
 scale = 0.5
-reads = ["taa_hist"]
 
 [[post]]
 file = "post/bloom_down2.wgsl"
@@ -169,10 +172,10 @@ writes = ["bloom_4"]
 [[post]]
 compute = true
 file = "post/bloom_mip5.wgsl"
-name = "Bloom downsample 5"
-dispatch = [120, 68, 1]
+name = "Bloom downsample 5 and auto exposure"
+dispatch = [128, 72, 1]
 workgroup = [8, 8, 1]
-reads = ["bloom_4"]
+reads = ["bloom_4", "bloom_5_previous"]
 writes = ["bloom_5"]
 
 [[post]]
@@ -185,23 +188,24 @@ reads = ["bloom_3", "bloom_4", "bloom_5"]
 writes = ["bloom_up"]
 
 [[post]]
-file = "post/exposure.wgsl"
-name = "Auto exposure"
-output = "exposure_tex"
-reads = ["exposure_tex_previous", "taa_hist"]
-
-[[post]]
 file = "post/grade.wgsl"
-name = "Colour grading"
-reads = ["exposure_tex", "taa_hist", "bloom_up"]
+name = "DoF, motion blur and colour grading"
+reads = ["bloom_up", "bloom_5"]
+
+# SMAA 1x's edge detection and blending weights, for the blending in the AA pass
+[[post]]
+file = "post/smaa_edges.wgsl"
+name = "SMAA edges"
+output = "smaa_edges"
 
 [[post]]
-file = "post/motion_blur.wgsl"
-name = "Motion blur"
+file = "post/smaa_weights.wgsl"
+name = "SMAA blending weights"
+output = "smaa_weights"
 
 [[post]]
-file = "post/fxaa.wgsl"
-name = "FXAA"
+file = "post/aa.wgsl"
+name = "SMAA or FXAA"
 
 [[post]]
 file = "post/final.wgsl"
@@ -233,6 +237,78 @@ sprites = ["block/*_leaves", "block/azalea_leaves", "block/flowering_azalea_leav
 [[materials]]
 id = 6
 sprites = ["block/vine", "block/glow_lichen", "block/sugar_cane", "block/lily_pad", "block/cave_vines*", "block/weeping_vines*", "block/twisting_vines*", "block/hanging_roots", "block/kelp*", "block/moss_carpet", "block/pale_hanging_moss*"]
+
+# photon's FANCY_NETHER_PORTAL: the portal's layered swirl (material.wgsl nether_portal_parallax)
+[[materials]]
+id = 40
+sprites = ["block/nether_portal"]
+
+# photon's block.properties for HARDCODED_SPECULAR (ids as its material masks: block.100NN is id NN); names
+# not in 26.3 dropped (generated from photon/shaders/block.properties)
+
+[[materials]]
+id = 7  # sand, sandstone
+blocks = ["sand", "sandstone", "chiseled_sandstone", "cut_sandstone", "sandstone_slab", "cut_sandstone_slab", "smooth_sandstone", "sandstone_stairs"]
+
+[[materials]]
+id = 8  # ice
+blocks = ["ice", "blue_ice", "packed_ice"]
+
+[[materials]]
+id = 14  # strong SSS: bamboo, mushroom blocks, azalea, spore blossom (sugar cane and vine are id 6, as photon's sss 0.6)
+blocks = ["bamboo", "red_mushroom_block", "brown_mushroom_block", "azalea", "flowering_azalea", "spore_blossom"]
+
+[[materials]]
+id = 15  # weak SSS: cobweb, wool, cactus, mushroom stem, propagule, petals, litter
+blocks = ["cobweb", "white_wool", "orange_wool", "magenta_wool", "light_blue_wool", "yellow_wool", "lime_wool", "pink_wool", "gray_wool", "light_gray_wool", "cyan_wool", "purple_wool", "blue_wool", "brown_wool", "green_wool", "red_wool", "black_wool", "cactus", "mushroom_stem", "mangrove_propagule", "pink_petals", "leaf_litter", "wildflowers"]
+
+[[materials]]
+id = 81  # stained and tinted glass, honey, slime (photon's masks 81-97: f0 0.04, roughness 0.1, reflective, sss 0.5)
+blocks = ["red_stained_glass", "red_stained_glass_pane", "orange_stained_glass", "orange_stained_glass_pane", "yellow_stained_glass", "yellow_stained_glass_pane", "brown_stained_glass", "brown_stained_glass_pane", "green_stained_glass", "green_stained_glass_pane", "lime_stained_glass", "lime_stained_glass_pane", "blue_stained_glass", "blue_stained_glass_pane", "light_blue_stained_glass", "light_blue_stained_glass_pane", "cyan_stained_glass", "cyan_stained_glass_pane", "purple_stained_glass", "purple_stained_glass_pane", "magenta_stained_glass", "magenta_stained_glass_pane", "pink_stained_glass", "pink_stained_glass_pane", "black_stained_glass", "black_stained_glass_pane", "white_stained_glass", "white_stained_glass_pane", "gray_stained_glass", "gray_stained_glass_pane", "light_gray_stained_glass", "light_gray_stained_glass_pane", "tinted_glass", "honey_block", "slime_block"]
+
+[[materials]]
+id = 9  # red sand, red sandstone, pumpkin
+blocks = ["red_sand", "red_sandstone", "chiseled_red_sandstone", "cut_red_sandstone", "red_sandstone_slab", "cut_red_sandstone_slab", "smooth_red_sandstone", "red_sandstone_stairs", "pumpkin"]
+
+[[materials]]
+id = 10  # granite, diorite, dirt path, nylium
+blocks = ["granite", "granite_slab", "granite_stairs", "polished_granite", "polished_granite_slab", "polished_granite_stairs", "diorite", "diorite_slab", "diorite_stairs", "polished_diorite", "polished_diorite_slab", "dirt_path", "warped_nylium", "crimson_nylium"]
+
+[[materials]]
+id = 11  # obsidian, nether bricks
+blocks = ["obsidian", "nether_bricks", "cracked_nether_bricks", "nether_brick_stairs", "nether_brick_slab", "chiseled_nether_bricks"]
+
+[[materials]]
+id = 12  # metal blocks
+blocks = ["iron_block", "gold_block", "netherite_block", "golden_dandelion"]
+
+[[materials]]
+id = 13  # gems, quartz, amethyst
+blocks = ["diamond_block", "emerald_block", "lapis_block", "quartz_block", "smooth_quartz", "quartz_pillar", "quartz_bricks", "chiseled_quartz_block", "quartz_slab", "quartz_stairs", "amethyst_block", "budding_amethyst"]
+
+[[materials]]
+id = 17  # end stone
+blocks = ["end_stone"]
+
+[[materials]]
+id = 18  # iron bars, doors, anvils
+blocks = ["iron_bars", "iron_door", "iron_trapdoor", "heavy_weighted_pressure_plate", "light_weighted_pressure_plate", "anvil", "chipped_anvil", "damaged_anvil"]
+
+[[materials]]
+id = 27  # copper blocks
+blocks = ["copper_block", "exposed_copper", "weathered_copper", "oxidized_copper", "cut_copper", "exposed_cut_copper", "weathered_cut_copper", "oxidized_cut_copper", "waxed_copper_block", "waxed_exposed_copper", "waxed_weathered_copper", "waxed_oxidized_copper", "waxed_cut_copper", "waxed_exposed_cut_copper", "waxed_weathered_cut_copper", "waxed_oxidized_cut_copper", "chiseled_copper", "exposed_chiseled_copper", "weathered_chiseled_copper", "oxidized_chiseled_copper", "waxed_chiseled_copper", "waxed_exposed_chiseled_copper", "waxed_weathered_chiseled_copper", "waxed_oxidized_chiseled_copper", "copper_bulb:lit=false", "waxed_copper_bulb:lit=false", "exposed_copper_bulb:lit=false", "waxed_exposed_copper_bulb:lit=false", "weathered_copper_bulb:lit=false", "waxed_weathered_copper_bulb:lit=false", "oxidized_copper_bulb:lit=false", "waxed_oxidized_copper_bulb:lit=false"]
+
+[[materials]]
+id = 28  # copper parts
+blocks = ["lightning_rod", "exposed_lightning_rod", "weathered_lightning_rod", "oxidized_lightning_rod", "waxed_lightning_rod", "waxed_exposed_lightning_rod", "waxed_weathered_lightning_rod", "waxed_oxidized_lightning_rod", "copper_grate", "exposed_copper_grate", "weathered_copper_grate", "oxidized_copper_grate", "waxed_copper_grate", "waxed_exposed_copper_grate", "waxed_weathered_copper_grate", "waxed_oxidized_copper_grate", "copper_bars", "exposed_copper_bars", "weathered_copper_bars", "oxidized_copper_bars", "waxed_copper_bars", "waxed_exposed_copper_bars", "waxed_weathered_copper_bars", "waxed_oxidized_copper_bars", "copper_chain", "exposed_copper_chain", "weathered_copper_chain", "oxidized_copper_chain", "waxed_copper_chain", "waxed_exposed_copper_chain", "waxed_weathered_copper_chain", "waxed_oxidized_copper_chain", "cut_copper_slab", "exposed_cut_copper_slab", "weathered_cut_copper_slab", "oxidized_cut_copper_slab", "waxed_cut_copper_slab", "waxed_exposed_cut_copper_slab", "waxed_weathered_cut_copper_slab", "waxed_oxidized_cut_copper_slab", "copper_chest", "exposed_copper_chest", "weathered_copper_chest", "oxidized_copper_chest", "waxed_copper_chest", "waxed_exposed_copper_chest", "waxed_weathered_copper_chest", "waxed_oxidized_copper_chest", "copper_golem_statue", "exposed_copper_golem_statue", "weathered_copper_golem_statue", "oxidized_copper_golem_statue", "waxed_copper_golem_statue", "waxed_exposed_copper_golem_statue", "waxed_weathered_copper_golem_statue", "waxed_oxidized_copper_golem_statue", "copper_door", "exposed_copper_door", "weathered_copper_door", "oxidized_copper_door", "waxed_copper_door", "waxed_exposed_copper_door", "waxed_weathered_copper_door", "waxed_oxidized_copper_door", "copper_trapdoor", "exposed_copper_trapdoor", "weathered_copper_trapdoor", "oxidized_copper_trapdoor", "waxed_copper_trapdoor", "waxed_exposed_copper_trapdoor", "waxed_weathered_copper_trapdoor", "waxed_oxidized_copper_trapdoor", "cut_copper_stairs", "exposed_cut_copper_stairs", "weathered_cut_copper_stairs", "oxidized_cut_copper_stairs", "waxed_cut_copper_stairs", "waxed_exposed_cut_copper_stairs", "waxed_weathered_cut_copper_stairs", "waxed_oxidized_cut_copper_stairs"]
+
+[[materials]]
+id = 29  # wood: logs, planks, wooden workstations
+blocks = ["stripped_oak_log", "stripped_oak_wood", "bookshelf", "crafting_table", "oak_log", "oak_wood", "spruce_planks", "stripped_spruce_log", "stripped_spruce_wood", "spruce_log", "spruce_wood", "birch_planks", "stripped_birch_log", "stripped_birch_wood", "loom", "chiseled_bookshelf", "birch_log", "birch_wood", "jungle_planks", "stripped_jungle_log", "stripped_jungle_wood", "jungle_log", "jungle_wood", "acacia_planks", "stripped_acacia_log", "stripped_acacia_wood", "acacia_log", "acacia_wood", "dark_oak_planks", "stripped_dark_oak_log", "stripped_dark_oak_wood", "dark_oak_log", "dark_oak_wood", "mangrove_planks", "stripped_mangrove_log", "stripped_mangrove_wood", "mangrove_log", "mangrove_wood", "crimson_planks", "stripped_crimson_stem", "stripped_crimson_hyphae", "warped_planks", "stripped_warped_stem", "stripped_warped_hyphae", "note_block", "jukebox", "barrel", "beehive", "bamboo_block", "stripped_bamboo_block", "bamboo_planks", "bamboo_mosaic", "cherry_planks", "stripped_cherry_log", "stripped_cherry_wood", "cherry_log", "cherry_wood", "pale_oak_planks", "stripped_pale_oak_log", "stripped_pale_oak_wood", "pale_oak_log", "pale_oak_wood", "fletching_table", "cartography_table", "smithing_table", "creaking_heart:creaking_heart_state=uprooted"]
+
+[[materials]]
+id = 30  # wooden fittings: signs, fences, doors, slabs
+blocks = ["oak_sign", "spruce_sign", "birch_sign", "jungle_sign", "acacia_sign", "dark_oak_sign", "oak_wall_sign", "spruce_wall_sign", "birch_wall_sign", "jungle_wall_sign", "acacia_wall_sign", "dark_oak_wall_sign", "crimson_sign", "crimson_wall_sign", "warped_sign", "warped_wall_sign", "mangrove_sign", "mangrove_wall_sign", "bamboo_sign", "bamboo_wall_sign", "oak_hanging_sign", "spruce_hanging_sign", "birch_hanging_sign", "jungle_hanging_sign", "acacia_hanging_sign", "dark_oak_hanging_sign", "oak_wall_hanging_sign", "spruce_wall_hanging_sign", "birch_wall_hanging_sign", "jungle_wall_hanging_sign", "acacia_wall_hanging_sign", "dark_oak_wall_hanging_sign", "crimson_hanging_sign", "crimson_wall_hanging_sign", "warped_hanging_sign", "warped_wall_hanging_sign", "mangrove_hanging_sign", "mangrove_wall_hanging_sign", "bamboo_hanging_sign", "bamboo_wall_hanging_sign", "cherry_sign", "cherry_wall_sign", "cherry_hanging_sign", "cherry_wall_hanging_sign", "pale_oak_sign", "pale_oak_hanging_sign", "chest", "trapped_chest", "tripwire_hook", "oak_fence", "oak_fence_gate", "oak_button", "oak_pressure_plate", "oak_trapdoor", "oak_shelf", "oak_slab", "petrified_oak_slab", "oak_stairs", "spruce_fence", "spruce_fence_gate", "spruce_button", "spruce_pressure_plate", "spruce_trapdoor", "spruce_shelf", "spruce_slab", "spruce_stairs", "birch_fence", "birch_fence_gate", "birch_button", "birch_pressure_plate", "birch_trapdoor", "birch_shelf", "birch_slab", "birch_stairs", "jungle_fence", "jungle_fence_gate", "jungle_button", "jungle_pressure_plate", "composter", "jungle_trapdoor", "jungle_shelf", "jungle_slab", "jungle_stairs", "acacia_fence", "acacia_fence_gate", "acacia_button", "acacia_pressure_plate", "acacia_trapdoor", "acacia_shelf", "acacia_slab", "acacia_stairs", "dark_oak_fence", "dark_oak_fence_gate", "dark_oak_button", "dark_oak_pressure_plate", "dark_oak_trapdoor", "dark_oak_shelf", "dark_oak_slab", "dark_oak_stairs", "mangrove_fence", "mangrove_fence_gate", "mangrove_button", "mangrove_pressure_plate", "mangrove_trapdoor", "mangrove_shelf", "mangrove_slab", "mangrove_stairs", "crimson_fence", "crimson_fence_gate", "crimson_button", "crimson_pressure_plate", "crimson_trapdoor", "crimson_shelf", "crimson_slab", "crimson_stairs", "warped_fence", "warped_fence_gate", "warped_button", "warped_pressure_plate", "warped_trapdoor", "warped_shelf", "warped_slab", "warped_stairs", "campfire:lit=false", "soul_campfire:lit=false", "ladder", "bamboo_fence", "bamboo_fence_gate", "bamboo_pressure_plate", "bamboo_button", "scaffolding", "bamboo_trapdoor", "bamboo_shelf", "bamboo_slab", "bamboo_mosaic_slab", "bamboo_stairs", "bamboo_mosaic_stairs", "cherry_fence", "cherry_fence_gate", "cherry_pressure_plate", "cherry_button", "cherry_trapdoor", "cherry_shelf", "cherry_slab", "cherry_stairs", "oak_door", "spruce_door", "birch_door", "jungle_door", "acacia_door", "dark_oak_door", "mangrove_door", "crimson_door", "warped_door", "bamboo_door", "cherry_door", "pale_oak_door", "pale_oak_fence", "pale_oak_fence_gate", "pale_oak_pressure_plate", "pale_oak_button", "pale_oak_trapdoor", "pale_oak_shelf", "pale_oak_stairs", "pale_oak_slab", "lectern"]
 
 [[textures]]
 id = "scattering"
@@ -339,25 +415,12 @@ blocks = ["nether_portal", "crying_obsidian", "enchanting_table", "amethyst_clus
 color = [0.35, 0.85, 0.65]
 blocks = ["end_portal", "end_gateway"]
 
-# Emissive and magic particles
+# Emissive and magic particles. Not the flames of torches, candles, campfires and furnaces, lava's pops or
+# end rods' sparks: those blocks light their surroundings through [[lights]] already, and a light per
+# short-lived particle on top made them flicker as the particles came and went.
 [[particle_lights]]
-particles = ["flame"]
-color = [1.0, 0.50, 0.18]
-reach = 4.5
-
-[[particle_lights]]
-particles = ["small_flame"]
-color = [1.0, 0.52, 0.20]
-reach = 3.0
-
-[[particle_lights]]
-particles = ["soul_fire_flame", "soul"]
+particles = ["soul"]
 color = [0.30, 0.72, 1.0]
-reach = 4.5
-
-[[particle_lights]]
-particles = ["copper_fire_flame"]
-color = [0.35, 1.0, 0.68]
 reach = 4.5
 
 [[particle_lights]]
@@ -366,7 +429,7 @@ color = [0.35, 0.92, 0.78]
 reach = 3.5
 
 [[particle_lights]]
-particles = ["lava", "landing_lava", "falling_lava", "dripping_lava"]
+particles = ["landing_lava", "falling_lava", "dripping_lava"]
 color = [1.0, 0.34, 0.06]
 reach = 4.0
 
@@ -378,11 +441,6 @@ reach = 3.0
 [[particle_lights]]
 particles = ["glow"]
 color = [0.40, 0.95, 0.82]
-reach = 3.5
-
-[[particle_lights]]
-particles = ["end_rod"]
-color = [0.95, 0.92, 1.0]
 reach = 3.5
 
 [[particle_lights]]

@@ -43,6 +43,24 @@ fn grade_output(rgb0: vec3<f32>) -> vec3<f32> {
     return rgb * rgb;
 }
 
+// photon's include/utility/dithering.glsl: bayer matrices and dither_8bit (the pattern's 0..1 spread over one 8-bit
+// step, centred on 0), which its final pass applies to the display-encoded colour so 8-bit output does not band
+fn bayer2(a: vec2<f32>) -> f32 {
+    let f = floor(a);
+    return fract(dot(f, vec2<f32>(0.5, f.y * 0.75)));
+}
+fn bayer4(a: vec2<f32>) -> f32 { return 0.25 * bayer2(0.5 * a) + bayer2(a); }
+fn bayer8(a: vec2<f32>) -> f32 { return 0.25 * bayer4(0.5 * a) + bayer2(a); }
+fn bayer16(a: vec2<f32>) -> f32 { return 0.25 * bayer8(0.5 * a) + bayer2(a); }
+
+fn srgb_oetf(l: vec3<f32>) -> vec3<f32> {
+    let c = max(l, vec3<f32>(0.0));
+    return select(1.055 * pow(c, vec3<f32>(1.0 / 2.4)) - 0.055, 12.92 * c, c <= vec3<f32>(0.0031308));
+}
+fn srgb_eotf(e: vec3<f32>) -> vec3<f32> {
+    return select(pow((e + 0.055) / 1.055, vec3<f32>(2.4)), e / 12.92, e <= vec3<f32>(0.04045));
+}
+
 fn tonemap(input: TonemapInput) -> vec3<f32> {
     let c = linear_to_rec2020(input.color);
     var mapped = apply_tonemap(c);
@@ -58,5 +76,13 @@ fn tonemap(input: TonemapInput) -> vec3<f32> {
     let linear_709 = rec2020_to_linear(mapped);
     let peak = max(max_of(linear_709), 1.0);
     let graded = grade_output(linear_709 / peak) * peak;
-    return clamp(graded, vec3<f32>(0.0), vec3<f32>(frame.headroom));
+    var out = clamp(graded, vec3<f32>(0.0), vec3<f32>(frame.headroom));
+    // the window is 8 bits per channel, encoded with the sRGB curve after this: dither there, by one step either
+    // way as photon's dither_8bit, then take it back to linear light
+    if dither_output && frame.hdr == 0u {
+        let encoded = srgb_oetf(out);
+        let pattern = bayer16(input.pixel);
+        out = srgb_eotf(clamp(encoded + (pattern - 0.5) / 255.0, vec3<f32>(0.0), vec3<f32>(1.0)));
+    }
+    return out;
 }

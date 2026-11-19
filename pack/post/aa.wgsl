@@ -1,4 +1,6 @@
-// photon's c21_fxaa: fxaa 3.11 (quality) in linear HDR light (perceptual luma for edge detection)
+// One anti-aliasing pass: the Anti-Aliasing choice, SMAA 1x's blending (its first two passes run before this one)
+// or FXAA 3.11 (quality), in linear HDR light with perceptual luma for edge detection. (Photon's TAA is not
+// ported: Horizon has no projection jitter, so there is nothing for a temporal pass to resolve.)
 
 fn fxaa_luma(c: vec3<f32>) -> f32 {
     let n = max(c, vec3<f32>(0.0));
@@ -7,10 +9,7 @@ fn fxaa_luma(c: vec3<f32>) -> f32 {
 }
 fn fxaa_tap(uv: vec2<f32>) -> vec3<f32> { return textureSampleLevel(previous, linear_sampler, uv, 0.0).rgb; }
 
-fn post(input: PostInput) -> vec4<f32> {
-    if !fxaa {
-        return input.color;
-    }
+fn fxaa_filter(input: PostInput) -> vec4<f32> {
     let px = 1.0 / frame.resolution;
     let uv = input.uv;
     let m = fxaa_luma(input.color.rgb);
@@ -94,4 +93,46 @@ fn post(input: PostInput) -> vec4<f32> {
         fuv.x += final_off * step_len;
     }
     return vec4<f32>(fxaa_tap(fuv), 1.0);
+}
+
+// SMAA 1x, pass 3 of 3: neighbourhood blending with the weights of smaa_weights. A pixel takes from the
+// neighbour across the edge the share of it the revectorized line gives that neighbour's side; of the two
+// directions it blends along the stronger, as SMAA does.
+fn smaa_blend(input: PostInput) -> vec4<f32> {
+    let size = vec2<i32>(textureDimensions(previous));
+    let p = vec2<i32>(input.pixel);
+    let w_here = textureLoad(smaa_weights, p, 0);
+    let w_top = w_here.r;
+    let w_left = w_here.b;
+    let w_bottom = textureLoad(smaa_weights, min(p + vec2<i32>(0, 1), size - 1), 0).g;
+    let w_right = textureLoad(smaa_weights, min(p + vec2<i32>(1, 0), size - 1), 0).a;
+    let vertical = max(w_top, w_bottom);
+    let horizontal = max(w_left, w_right);
+    if max(vertical, horizontal) < 1e-5 {
+        return input.color;
+    }
+    let c = input.color.rgb;
+    var o_a = vec2<i32>(0, -1);
+    var o_b = vec2<i32>(0, 1);
+    var w_a = w_top;
+    var w_b = w_bottom;
+    if horizontal > vertical {
+        o_a = vec2<i32>(-1, 0);
+        o_b = vec2<i32>(1, 0);
+        w_a = w_left;
+        w_b = w_right;
+    }
+    let ca = textureLoad(previous, clamp(p + o_a, vec2<i32>(0), size - 1), 0).rgb;
+    let cb = textureLoad(previous, clamp(p + o_b, vec2<i32>(0), size - 1), 0).rgb;
+    return vec4<f32>(c * (1.0 - w_a - w_b) + ca * w_a + cb * w_b, 1.0);
+}
+
+fn post(input: PostInput) -> vec4<f32> {
+    if anti_aliasing == 1u {
+        return fxaa_filter(input);
+    }
+    if anti_aliasing == 2u {
+        return smaa_blend(input);
+    }
+    return input.color;
 }

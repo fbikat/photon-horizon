@@ -9,7 +9,7 @@ fn compute(input: ComputeInput) {
         return;
     }
     let texel = vec2<i32>(input.cell.xy);
-    if !bloom {
+    if !bloom_on() && !auto_exposure {
         textureStore(bloom_4, texel, vec4<f32>(0.0));
         return;
     }

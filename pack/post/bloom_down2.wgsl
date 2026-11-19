@@ -5,7 +5,7 @@ fn bloom_tap(uv: vec2<f32>) -> vec3<f32> {
 }
 
 fn post(input: PostInput) -> vec4<f32> {
-    if !bloom {
+    if !bloom_on() && !auto_exposure {
         return vec4<f32>(0.0);
     }
     let px = 2.0 / frame.resolution;

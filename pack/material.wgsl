@@ -146,7 +146,9 @@ fn hardcoded_specular_of(id: u32, srgb: vec3<f32>, m: ptr<function, Mat>) -> boo
         case 27u, 28u: {
             // roughness 0.5 (smoothness 1 - sqrt(0.5)); the oxidised, blue-green parts rougher
             let oxidized = max(isolate_hue(hsv, 120.0, 90.0), isolate_hue(hsv, 180.0, 60.0)) > 0.25;
-            s = 1.0 - sqrt(select(0.5, 0.7, oxidized));
+            // the roots taken apart, so no square root of a choice between two bare numbers reaches
+            // DirectX 12: its HLSL would read them as doubles, which DXC refuses (a crash under DXC)
+            s = 1.0 - select(sqrt(0.5), sqrt(0.7), oxidized);
             f0 = select(0.01, 0.015, oxidized);
             reflects = true;
         }
